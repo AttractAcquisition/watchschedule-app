@@ -1,3 +1,16 @@
-// Placeholder — TanStack Query client (Phase 0)
-// Implemented in a later phase per docs/master.md §5. Do not add feature code here yet.
-export {}
+// TanStack Query (React Query) client — the single store for all server data
+// (crew, settings, schedule, fairness, subscription) per frontend.md §1.
+// Local UI state stays in hooks/context; no Redux.
+import { QueryClient } from '@tanstack/react-query'
+
+export const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Server data is RLS-scoped and changes via deliberate actions
+      // (generate, regenerate, edits) — modest caching, no noisy refetch.
+      staleTime: 30_000,
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+})

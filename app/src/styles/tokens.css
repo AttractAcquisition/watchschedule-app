@@ -1,4 +1,116 @@
-/* WatchSchedule design tokens.
- * Populated in Phase 0 with ALL --ws-* custom properties from branding.md
- * (§2 colour palette, §3 typography, §4 spacing/radius/elevation).
- * Intentionally empty in the skeleton — no raw hex anywhere yet. */
+/* WatchSchedule design tokens — the single source of truth for colour, type,
+ * spacing, radius and elevation in the client. Transcribed verbatim from
+ * branding.md §2 (LOCKED palette), §3 (typography) and §4 (spacing/radius/
+ * elevation). Tailwind (tailwind.config.js) maps these into utilities
+ * (bg-ws-navy, text-ws-gold, border-ws-line, …) so components never use raw hex.
+ *
+ * Dark-theme only for v1. Do NOT substitute, tint, or "improve" these values
+ * (branding.md §2 — palette is LOCKED). */
+
+:root {
+  /* ============ CORE LOCKED PALETTE (branding.md §2) ============ */
+  --ws-navy:      #0B1420;  /* Midnight Navy — primary background, header, footer, hero, UI chrome */
+  --ws-steel:     #1A2433;  /* Steel Grey — UI surfaces: cards, schedule panels, dashboard widgets */
+  --ws-gold:      #C8A46B;  /* Warm Gold — primary accent: CTAs, active states, key metrics, icons */
+  --ws-offwhite:  #F7F5F1;  /* Off White — primary text, headlines, hero text (NEVER pure white) */
+  --ws-slate:     #8A94A6;  /* Slate Grey — secondary text, captions, metadata, explanatory copy */
+  --ws-seagreen:  #4E8D74;  /* Sea Green — success/fairness/approved/rotation intact (NOT bright SaaS green) */
+
+  /* ============ DERIVED SURFACES (navy/steel family) ============ */
+  --ws-navy-deep:   #070E17;  /* deepest well — app background base, inset areas, behind cards */
+  --ws-steel-2:     #212D3E;  /* raised surface: modal, popover, hovered card */
+  --ws-steel-3:     #2A384B;  /* input fields, hover state on surfaces, segmented-control track */
+  --ws-steel-inset: #0B142066;/* semi-transparent inset: calendar empty cells, code/data wells */
+
+  /* ============ HAIRLINES & BORDERS ============ */
+  --ws-line:        #2A384B;  /* default hairline divider, card border */
+  --ws-line-strong: #3A4A60;  /* emphasised / focused-input border */
+  --ws-line-faint:  #1E2937;  /* barely-there internal grid lines (calendar) */
+
+  /* ============ TEXT ============ */
+  --ws-text:        var(--ws-offwhite); /* primary text */
+  --ws-text-muted:  var(--ws-slate);    /* secondary text, labels, metadata */
+  --ws-text-faint:  #5C6678;            /* captions, disabled, timestamps, watermark */
+  --ws-text-on-gold:#0B1420;            /* text placed on top of gold fills — use navy */
+
+  /* ============ GOLD ACCENT STATES ============ */
+  --ws-gold-bright: #D8B985;  /* hover / brighten */
+  --ws-gold-dim:    #A8854F;  /* pressed / low-emphasis */
+  --ws-gold-ghost:  #C8A46B1A;/* 10% gold — selected backgrounds, focus ring base, subtle fills */
+  --ws-gold-glow:   #C8A46B3D;/* ~24% gold — glow on genuinely active/live elements only */
+
+  /* ============ DASHBOARD METRIC COLOURS (from brief) ============ */
+  --ws-metric-balance:   #C8A46B;  /* Watch Balance — gold */
+  --ws-metric-weekend:   #D4B483;  /* Weekend Fairness — lighter gold/sand */
+  --ws-metric-rotation:  #4E8D74;  /* Rotation Continuity — sea green */
+  --ws-metric-status:    #F7F5F1;  /* Status — off white */
+
+  /* ============ SEMANTIC STATUS ============ */
+  --ws-ok:     var(--ws-seagreen); /* fair / balanced / approved / intact */
+  --ws-warn:   #D4A24E;            /* mild imbalance / attention — amber-gold, stays in warm family */
+  --ws-alert:  #C2685E;            /* unfair / conflict / error — muted maritime red, NOT bright */
+  --ws-info:   var(--ws-gold);     /* informational — reuse gold */
+
+  /* ============ FAIRNESS GAUGE SCALE ============ */
+  --ws-fair-high: #4E8D74;  /* >=85% — sea green */
+  --ws-fair-mid:  #C8A46B;  /* 70-84% — gold */
+  --ws-fair-low:  #C2685E;  /* <70% — muted red */
+
+  /* ============ TYPOGRAPHY — FONT FAMILIES (branding.md §3) ============ */
+  --ws-font-display: "Inter Tight", "Manrope", system-ui, sans-serif;
+  --ws-font-ui:      "Inter", -apple-system, "Segoe UI", system-ui, sans-serif;
+  --ws-font-mono:    "JetBrains Mono", "SF Mono", ui-monospace, monospace;
+
+  /* ============ TYPE SCALE ============ */
+  --ws-text-xs:   0.75rem;   /* 12px — captions, timestamps */
+  --ws-text-sm:   0.8125rem; /* 13px — secondary, table cells */
+  --ws-text-base: 0.9375rem; /* 15px — body default */
+  --ws-text-md:   1.0625rem; /* 17px — emphasised body, card titles */
+  --ws-text-lg:   1.375rem;  /* 22px — section headings */
+  --ws-text-xl:   1.875rem;  /* 30px — page titles */
+  --ws-text-2xl:  2.5rem;    /* 40px — dashboard hero numbers (fairness %) */
+  --ws-text-3xl:  3.5rem;    /* 56px — large gauge readout */
+
+  --ws-leading-tight:   1.15;
+  --ws-leading-normal:  1.5;
+  --ws-leading-relaxed: 1.65;
+
+  --ws-tracking-tight:  -0.02em; /* large display numbers, Inter Tight headings */
+  --ws-tracking-normal: 0;
+  --ws-tracking-wide:   0.08em;  /* eyebrows / labels */
+  --ws-tracking-mono:   0.02em;  /* mono data */
+
+  /* ============ SPACING (4px base, branding.md §4) ============ */
+  --ws-space-1: 0.25rem;  /*  4px */
+  --ws-space-2: 0.5rem;   /*  8px */
+  --ws-space-3: 0.75rem;  /* 12px */
+  --ws-space-4: 1rem;     /* 16px */
+  --ws-space-5: 1.5rem;   /* 24px */
+  --ws-space-6: 2rem;     /* 32px */
+  --ws-space-7: 3rem;     /* 48px */
+  --ws-space-8: 4rem;     /* 64px */
+
+  /* ============ RADIUS ============ */
+  --ws-radius-sm:   6px;   /* chips, small buttons, inputs */
+  --ws-radius-md:   10px;  /* cards, panels */
+  --ws-radius-lg:   16px;  /* modals, major containers */
+  --ws-radius-full: 999px; /* pills, avatars, status dots */
+
+  /* ============ ELEVATION ============ */
+  --ws-shadow-sm: 0 1px 2px rgba(0,0,0,0.45);
+  --ws-shadow-md: 0 4px 18px rgba(0,0,0,0.50);
+  --ws-shadow-lg: 0 18px 50px rgba(0,0,0,0.60);
+  --ws-glow-gold: 0 0 0 1px var(--ws-gold-ghost), 0 0 24px var(--ws-gold-glow); /* live elements only */
+}
+
+/* Eyebrow / label style — recurring structural device (branding.md §3).
+ * Consumed as the `.ws-eyebrow` class on section labels (FAIRNESS ENGINE,
+ * WATCH SCHEDULE, …). Built from tokens only. */
+.ws-eyebrow {
+  font-family: var(--ws-font-mono);
+  font-size: var(--ws-text-xs);
+  font-weight: 500;
+  letter-spacing: var(--ws-tracking-wide);
+  text-transform: uppercase;
+  color: var(--ws-gold);
+}

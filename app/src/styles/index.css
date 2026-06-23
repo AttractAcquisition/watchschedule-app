@@ -1,6 +1,34 @@
-/* Design tokens (populated in Phase 0 from branding.md) load first. */
+/* Design tokens (branding.md §2/§3/§4) load first, then Tailwind layers. */
 @import './tokens.css';
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Global app surface defaults — dark-theme only for v1 (branding.md §2/§7).
+ * The base well is --ws-navy-deep; primary text is off-white via tokens; the
+ * default UI font is Inter. All values come from tokens — no raw hex here. */
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--ws-navy-deep);
+    color: var(--ws-text);
+    font-family: var(--ws-font-ui);
+    font-size: var(--ws-text-base);
+    line-height: var(--ws-leading-normal);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Visible keyboard focus on every interactive element (branding.md §9). */
+  :focus-visible {
+    outline: 2px solid var(--ws-gold);
+    outline-offset: 2px;
+  }
+}
