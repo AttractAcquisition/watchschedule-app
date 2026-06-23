@@ -80,13 +80,15 @@ create table profiles (
   product_tier        product_tier,                         -- null until paid
   onboarding_step     onboarding_step not null default 'crew',
   onboarding_complete boolean not null default false,
-  stripe_customer_id  text,                                 -- set by webhook
-  stripe_subscription_id text,                              -- set by webhook
+  stripe_customer_id  text,                                 -- service-role: create-checkout-session + webhook
+  stripe_subscription_id text,                              -- service-role: webhook
   created_at          timestamptz not null default now(),
   updated_at          timestamptz not null default now()
 );
 ```
-> `payment_status`, `product_tier`, `stripe_*` are written **only** by `stripe-webhook` (service-role). The client may read them; it may never write them (enforced by RLS — see 3).
+> **Column write-authority (precise).** Two distinct categories:
+> - **Access-gate columns — `payment_status` and `product_tier`:** written **ONLY** by `stripe-webhook` (service-role). These decide access, so nothing else may write them. The client may read them; it may never write them (enforced by the §3 RLS policy **and** the `block_gate_column_writes` trigger).
+> - **Stripe reference columns — `stripe_customer_id`, `stripe_subscription_id`:** server-written via service-role only. `stripe_customer_id` may be written by `create-checkout-session` (on customer create, §6.1) and by `stripe-webhook` (upsert); `stripe_subscription_id` is written by `stripe-webhook`. The client may read them; it never writes them (same §3 policy + trigger block client writes to all four columns).
 
 **`crew_members`** — the crew list.
 ```sql
@@ -497,7 +499,7 @@ The client never writes payment state. The webhook is the single writer. This is
 ## 9. Security Checklist (must pass)
 - [ ] Every table has RLS enabled and a vessel-scoped (or user-scoped) policy.
 - [ ] Server-written tables expose SELECT-only to clients; writes are service-role only.
-- [ ] `profiles` gate columns (payment_status, product_tier, stripe_*) are unwritable by clients (policy + trigger).
+- [ ] `profiles` access-gate columns (payment_status, product_tier) are writable ONLY by `stripe-webhook`; the Stripe reference columns (stripe_customer_id, stripe_subscription_id) are server-written via service-role (create-checkout-session / webhook). All four are unwritable by clients (policy + trigger).
 - [ ] Edge Functions re-derive `vessel_id` from the JWT; never trust a client-supplied vessel_id.
 - [ ] `stripe-webhook` verifies the Stripe signature (async constructor) and is idempotent.
 - [ ] `seed-fairness` and Triple/Dual-only capabilities reject Solo callers server-side.

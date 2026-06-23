@@ -16,7 +16,7 @@ These are sacred. If a build step would violate one, it is wrong — stop and re
 
 1. **Supabase = single source of truth** (Auth, Postgres, Storage, Edge Functions).
 2. **RLS is the real access gate.** Client routing is UX only. Every table is vessel-scoped; the database refuses another vessel's data regardless of what the client does.
-3. **`stripe-webhook` is the ONLY writer of `payment_status` and `product_tier`** (and `stripe_*` columns), via service-role. The client may read these columns; it may never write them (enforced by RLS policy **and** the `block_gate_column_writes` trigger).
+3. **`stripe-webhook` is the ONLY writer of the access-gate columns `payment_status` and `product_tier`**, via service-role. The Stripe **reference** columns (`stripe_customer_id`, `stripe_subscription_id`) are also server-written via service-role — `stripe_customer_id` by `create-checkout-session` (backend.md §6.1) and/or `stripe-webhook`; `stripe_subscription_id` by `stripe-webhook`. The client may read all of these; it may never write any of them (enforced by RLS policy **and** the `block_gate_column_writes` trigger).
 4. **The schedule + fairness tables are written ONLY by server functions** (`generate-schedule`, `seed-fairness`), using service-role. Specifically `schedules`, `watch_assignments`, `fairness_ledger`, `fairness_events` are **SELECT-only** for the client.
 5. **Secrets live ONLY in Edge Functions.** The client holds the **anon key only** — never the Stripe secret key, the Supabase service-role key, or the Anthropic API key.
 6. **The engine is deterministic** — identical inputs (crew + settings + ledger) produce identical schedules. No randomness anywhere; all ties broken by explicit ordered rules. Tests must prove this.
@@ -92,7 +92,7 @@ updateLedger(lane, crew_id, date, dayType, isFriday)
 - **Lane rule:** Solo = 1 lane (`kind='solo'`, all eligible crew, no dept); Dual = 2 dept lanes; Triple = 3 dept lanes. **One fairness ledger per lane.**
 - **Horizon cap:** `horizon_weeks ∈ [1,13]` (~3 months) — DB check **and** UI control **and** engine clamp.
 - **Departments (4):** enum `deck, interior, engineering, officer`. Command/Captain is a role, not a watch dept — handled via per-member `eligible` flag.
-- **Tiers (3):** `solo` / `dual` / `triple`; Solo €39, Dual €99, Triple €199 monthly; annual = 2 months free.
+- **Tiers (3):** `solo` / `dual` / `triple`; Solo €39, Dual €79, Triple €149 monthly; annual = 2 months free.
 - **Gate:** Auth → `payment_status` → `onboarding_complete`. Gate columns webhook-written, client read-only; RLS is the real gate.
 - **Day math:** ISO weekday — Friday = ISO 5, weekend = ISO 6/7. `watch_date` stored as plain `date`.
 - **Claude model:** `ANTHROPIC_MODEL=claude-sonnet-4-6`, server-side only (`parse-crew-list`, `seed-fairness`, `schedule-chat`).

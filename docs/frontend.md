@@ -97,8 +97,8 @@ Top-bar nav exposes **only Dashboard and Settings**. Payment and onboarding are 
 - Shown to authenticated users without an active subscription.
 - Three tiers (from the marketing site / `branding.md`):
   - **Solo Watch** — EUR 39/mo (EUR 390/yr)
-  - **Dual Watch** — EUR 99/mo (EUR 990/yr) — *Most Popular*
-  - **Triple Watch** — EUR 199/mo (EUR 1990/yr)
+  - **Dual Watch** — EUR 79/mo (EUR 790/yr) — *Most Popular*
+  - **Triple Watch** — EUR 149/mo (EUR 1490/yr)
   - Annual toggle (two months free). Copy: billed per watch structure the vessel runs.
 - Each card has a "Start [tier]" primary button. Clicking calls the **`create-checkout-session`** Edge Function with `{ tier, interval }`, receives a Stripe Checkout URL, and redirects (`window.location.href = checkoutUrl`).
 - The selected tier is encoded in the Checkout session metadata so the webhook writes the correct `product_tier`.
