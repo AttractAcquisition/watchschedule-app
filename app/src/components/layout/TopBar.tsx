@@ -3,7 +3,7 @@
 // and onboarding are flow states, never nav items. User menu = sign out.
 import { NavLink } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Anchor, LogOut } from 'lucide-react'
+import { LogOut } from 'lucide-react'
 import { useAuth } from '../../auth/AuthGate'
 import { supabase } from '../../lib/supabase'
 
@@ -38,12 +38,9 @@ export default function TopBar() {
     <header className="border-b border-ws-line bg-ws-navy">
       <div className="mx-auto flex h-14 max-w-[1200px] items-center justify-between px-ws-5">
         <div className="flex items-center gap-ws-4">
-          <div className="flex items-center gap-ws-2">
-            <Anchor className="h-5 w-5 text-ws-gold" strokeWidth={1.5} aria-hidden />
-            <span className="font-display text-ws-md font-semibold tracking-ws-tight text-ws-offwhite">
-              WatchSchedule
-            </span>
-          </div>
+          {/* Wordmark (branding.md §6): navy-background lockup, ~28px tall, sits
+              seamlessly on the --ws-navy top bar. */}
+          <img src="/watch-schedule-logo.png" alt="WatchSchedule" className="h-7 w-auto" />
           {vessel?.name && (
             <span className="hidden font-mono text-ws-sm text-ws-text-muted sm:inline">
               {vessel.name}
