@@ -58,12 +58,13 @@ export interface SelectionResult {
 }
 
 // ---- date helpers (deterministic; UTC) -------------------------------------
-function isoWeekday(date: string): number {
+// Exported for the schedule engine (Phase 7), which shares this day-math.
+export function isoWeekday(date: string): number {
   // 1 = Monday … 7 = Sunday (schedule.md §8)
   const wd = new Date(`${date}T00:00:00Z`).getUTCDay() // 0=Sun..6=Sat
   return wd === 0 ? 7 : wd
 }
-function addDays(date: string, n: number): string {
+export function addDays(date: string, n: number): string {
   const d = new Date(`${date}T00:00:00Z`)
   d.setUTCDate(d.getUTCDate() + n)
   return d.toISOString().slice(0, 10)

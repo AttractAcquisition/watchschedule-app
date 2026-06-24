@@ -216,9 +216,9 @@ create table fairness_events (
   vessel_id     uuid not null references vessels(id) on delete cascade,
   schedule_id   uuid references schedules(id) on delete cascade,
   lane_id       uuid not null references watch_lanes(id) on delete cascade,
-  crew_id       uuid not null references crew_members(id) on delete cascade,
+  crew_id       uuid references crew_members(id) on delete cascade,  -- nullable: null ONLY for 'no_eligible_crew' gap events (no crew to attach); assignment events always carry a crew_id
   watch_date    date,
-  reason_code   text not null,        -- e.g. 'lowest_cumulative', 'friday_rebalance', 'weekend_exclusion_applied'
+  reason_code   text not null,        -- e.g. 'lowest_cost', 'friday_spread', 'weekend_balance', 'monday_exclusion_applied', 'tie_break_*', 'constraint_relaxed_*', 'no_eligible_crew'
   detail        jsonb,                -- structured snapshot: scores at decision time, candidates considered
   created_at    timestamptz not null default now()
 );

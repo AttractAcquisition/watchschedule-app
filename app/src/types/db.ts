@@ -127,7 +127,7 @@ export type Database = {
       fairness_events: {
         Row: {
           created_at: string
-          crew_id: string
+          crew_id: string | null
           detail: Json | null
           id: string
           lane_id: string
@@ -138,7 +138,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
-          crew_id: string
+          crew_id?: string | null
           detail?: Json | null
           id?: string
           lane_id: string
@@ -149,7 +149,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
-          crew_id?: string
+          crew_id?: string | null
           detail?: Json | null
           id?: string
           lane_id?: string
