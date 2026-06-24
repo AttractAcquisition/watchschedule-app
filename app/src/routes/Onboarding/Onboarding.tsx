@@ -6,6 +6,7 @@
 import { useAuth } from '../../auth/AuthGate'
 import type { Database } from '../../types/db'
 import StepCrew from './StepCrew'
+import StepSettings from './StepSettings'
 
 type Step = Database['public']['Enums']['onboarding_step']
 
@@ -15,14 +16,12 @@ const STEPS: { key: Exclude<Step, 'complete'>; label: string }[] = [
   { key: 'generate', label: 'Generate' },
 ]
 
-function Placeholder({ step }: { step: 'settings' | 'generate' }) {
-  const phase = step === 'settings' ? '5' : '7'
-  const title = step === 'settings' ? 'Watch settings' : 'Generate your schedule'
+function GeneratePlaceholder() {
   return (
     <div>
-      <p className="ws-eyebrow">— Step {step === 'settings' ? '2 · Settings' : '3 · Generate'}</p>
-      <h2 className="mt-ws-1 font-display text-ws-lg tracking-ws-tight text-ws-offwhite">{title}</h2>
-      <p className="mt-ws-3 text-ws-base text-ws-text-muted">This step is built in Phase {phase}.</p>
+      <p className="ws-eyebrow">— Step 3 · Generate</p>
+      <h2 className="mt-ws-1 font-display text-ws-lg tracking-ws-tight text-ws-offwhite">Generate your schedule</h2>
+      <p className="mt-ws-3 text-ws-base text-ws-text-muted">This step is built in Phase 7.</p>
     </div>
   )
 }
@@ -63,8 +62,8 @@ export default function Onboarding() {
 
         <section className="mt-ws-6 rounded-ws-lg border border-ws-line bg-ws-steel p-ws-6 shadow-ws-lg">
           {current === 'crew' && <StepCrew />}
-          {current === 'settings' && <Placeholder step="settings" />}
-          {(current === 'generate' || current === 'complete') && <Placeholder step="generate" />}
+          {current === 'settings' && <StepSettings />}
+          {(current === 'generate' || current === 'complete') && <GeneratePlaceholder />}
         </section>
 
         <button
