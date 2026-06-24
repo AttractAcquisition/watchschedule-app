@@ -9,6 +9,7 @@ import { handlePreflight, json } from '../_shared/cors.ts'
 import {
   planSchedule, replayLedgers, type Crew, type LaneRow, type PlannedAssignment,
 } from '../_shared/schedule_engine.ts'
+import { type Ledger, type LedgerEntry } from '../_shared/fairness_engine.ts'
 
 const todayUTC = () => new Date().toISOString().slice(0, 10)
 const DEPT_LABEL: Record<string, string> = { deck: 'Deck', interior: 'Interior', engineering: 'Engineering', officer: 'Officer' }
@@ -66,10 +67,27 @@ Deno.serve(async (req) => {
     // resolve start (schedule.md §5/§7)
     const fromDate = body.from_date ?? (regenerate ? todayUTC() : settings.schedule_start_date)
 
-    // base ledgers = replay of already-stood assignments (< fromDate); avoids
-    // double-counting the replaced forward portion on regenerate.
+    // SEED base = the immutable seed_* columns set by seed-fairness (Phase 8).
+    // Never overwritten by generation, so it survives every regeneration intact
+    // (schedule.md §7.1). Empty/zero when unseeded -> identical to Phase-7 behaviour.
+    const { data: seedRows } = await admin
+      .from('fairness_ledger')
+      .select('lane_id,crew_id,seed_total_watches,seed_weekday_watches,seed_weekend_watches,seed_friday_watches,seed_last_watch_date,seed_last_weekend_date,seed_consecutive_run')
+      .eq('vessel_id', vesselId)
+    const seed: Record<string, Ledger> = {}
+    for (const r of seedRows ?? []) {
+      const entry: LedgerEntry = {
+        crew_id: r.crew_id, total_watches: r.seed_total_watches, weekday_watches: r.seed_weekday_watches,
+        weekend_watches: r.seed_weekend_watches, friday_watches: r.seed_friday_watches,
+        last_watch_date: r.seed_last_watch_date, last_weekend_date: r.seed_last_weekend_date, consecutive_run: r.seed_consecutive_run,
+      }
+      ;(seed[r.lane_id] ??= {})[r.crew_id] = entry
+    }
+
+    // base = SEED + replay(already-stood assignments < fromDate). Avoids double-
+    // counting the replaced forward portion on regenerate.
     const keptPast = priorAssignments.filter((a) => a.watch_date < fromDate)
-    const baseLedgers = replayLedgers(activeLaneIds, keptPast)
+    const baseLedgers = replayLedgers(activeLaneIds, keptPast, seed)
 
     const plan = planSchedule({
       startDate: fromDate,

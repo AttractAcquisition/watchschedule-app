@@ -200,6 +200,16 @@ create table fairness_ledger (
   last_watch_date    date,
   last_weekend_date  date,                         -- used for the "no Monday after weekend" rule
   consecutive_run    int not null default 0,       -- current consecutive-day exposure
+  -- Immutable SEED base (set ONCE by seed-fairness from uploaded history; never
+  -- written by generate-schedule). The live counters above are rebuilt each run as
+  -- SEED + replay(already-stood past) + forward (schedule.md §7.1).
+  seed_total_watches    int not null default 0,
+  seed_weekday_watches  int not null default 0,
+  seed_weekend_watches  int not null default 0,
+  seed_friday_watches   int not null default 0,
+  seed_last_watch_date    date,
+  seed_last_weekend_date  date,
+  seed_consecutive_run  int not null default 0,
   -- Derived, cached for display (recomputed on update):
   fairness_score     numeric,                      -- 0-100, see fairness.md
   updated_at         timestamptz not null default now(),
@@ -419,7 +429,7 @@ Seeds the PERSISTENT fairness ledger from uploaded previous schedules. **Dual/Tr
 - **Behaviour:**
   1. Service-role reads each image; Claude vision extracts historical assignments: who stood watch on which dates, mapped to crew (fuzzy-match names to `crew_members`).
   2. For each lane (per `watch_lanes`), aggregate per crew member: counts of total / weekday / weekend / friday watches, last_watch_date, last_weekend_date, consecutive_run where determinable.
-  3. **Upsert `fairness_ledger`** rows (this is the seed; it sets the starting cumulative state). Compute initial `fairness_score` per `fairness.md`.
+  3. **Upsert `fairness_ledger`** rows, writing the immutable **`seed_*` columns** (the starting cumulative state) — and, since this runs pre-generation, mirror them into the live counters so the pre-generation display matches. `generate-schedule` later reads the `seed_*` columns as its replay base and never overwrites them (schedule.md §7.1). Compute initial `fairness_score` per `fairness.md`. This is a **set/replace** (idempotent): re-uploading recomputes the seed from scratch and replaces it — it never increments.
   4. Record `storage_uploads.parsed=true`.
 - **Response:**
 ```json

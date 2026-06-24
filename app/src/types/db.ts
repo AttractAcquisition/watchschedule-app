@@ -199,6 +199,13 @@ export type Database = {
           lane_id: string
           last_watch_date: string | null
           last_weekend_date: string | null
+          seed_consecutive_run: number
+          seed_friday_watches: number
+          seed_last_watch_date: string | null
+          seed_last_weekend_date: string | null
+          seed_total_watches: number
+          seed_weekday_watches: number
+          seed_weekend_watches: number
           total_watches: number
           updated_at: string
           vessel_id: string
@@ -214,6 +221,13 @@ export type Database = {
           lane_id: string
           last_watch_date?: string | null
           last_weekend_date?: string | null
+          seed_consecutive_run?: number
+          seed_friday_watches?: number
+          seed_last_watch_date?: string | null
+          seed_last_weekend_date?: string | null
+          seed_total_watches?: number
+          seed_weekday_watches?: number
+          seed_weekend_watches?: number
           total_watches?: number
           updated_at?: string
           vessel_id: string
@@ -229,6 +243,13 @@ export type Database = {
           lane_id?: string
           last_watch_date?: string | null
           last_weekend_date?: string | null
+          seed_consecutive_run?: number
+          seed_friday_watches?: number
+          seed_last_watch_date?: string | null
+          seed_last_weekend_date?: string | null
+          seed_total_watches?: number
+          seed_weekday_watches?: number
+          seed_weekend_watches?: number
           total_watches?: number
           updated_at?: string
           vessel_id?: string

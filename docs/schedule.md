@@ -135,10 +135,34 @@ Regeneration is the same algorithm with two differences:
 1. **`from_date` defaults to today** (not the original start), so regenerating mid-cycle rebuilds the schedule *forward* from now, preserving the past (already-stood) portion implicitly via the ledger.
 2. The prior `is_current` schedule is flipped to `is_current=false` and a new one inserted.
 
-Crucially, regeneration is **fairness-aware, not random**: it reads the up-to-date persistent ledger, so it continues balancing from wherever the crew currently stands. Triggers for regeneration:
+Crucially, regeneration is **fairness-aware, not random**: it continues balancing from wherever the crew currently stands. Triggers for regeneration:
 - Crew changes (added/removed/eligibility toggled) in `/settings`.
 - Settings changes (horizon, departments, start).
 - Manual "Regenerate schedule" on the dashboard.
+
+### 7.1 The ledger model (what the engine actually computes)
+
+Every generation rebuilds the live `fairness_ledger` deterministically as:
+
+```
+fairness_ledger = SEED  +  replay(already-stood assignments with watch_date < from_date)  +  freshly-generated forward portion (from_date .. end)
+```
+
+- **SEED** is the immutable starting base from `seed-fairness` (Phase 8), stored in the
+  `fairness_ledger.seed_*` columns (`seed_total_watches`, `seed_weekday_watches`,
+  `seed_weekend_watches`, `seed_friday_watches`, `seed_last_watch_date`,
+  `seed_last_weekend_date`, `seed_consecutive_run`). It is set once during onboarding and
+  is **never** overwritten by generation. For Solo (or unseeded Dual/Triple) the seed is zero.
+- **replay(...)** re-applies `updateLedger` over the prior current schedule's assignments
+  that fall **before** `from_date` — the already-stood past — on top of the seed.
+- The **forward portion** is the new chronological generation from `from_date`.
+
+This is **idempotent under repeated regeneration and never double-counts**: because the
+forward portion is always generated afresh from a base of `SEED + already-stood-past` (the
+seed is read from the immutable `seed_*` columns, not from the live counters that the
+previous generation wrote), regenerating any number of times from the same state yields the
+same ledger. First generation has no prior schedule, so the base is just the SEED, and the
+first rota is therefore fairness-aware from day one (heavier-seeded crew are favoured less).
 
 > Design note: v1 regenerates the whole forward horizon. It does **not** attempt to preserve specific previously-published future assignments (no "lock this day" feature yet). If that's needed later, add an `assignment.locked` flag the engine respects. Leave the hook; don't build it in v1.
 
