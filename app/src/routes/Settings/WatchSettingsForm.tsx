@@ -24,8 +24,8 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../auth/AuthGate'
 import { DEPARTMENTS, type Department } from '../../lib/classifyDepartment'
 import {
-  DEPT_LABEL, deptCountForTier, deriveLanes, makeWatchSettingsSchema, todayISO,
-  type Tier, type WatchSettingsValues as FormValues,
+  DEPT_LABEL, deptCountForTier, deriveLanes, makeWatchSettingsSchema, reconcileLanes, todayISO,
+  type ExistingLane, type LaneRef, type Tier, type WatchSettingsValues as FormValues,
 } from './watchSettings'
 
 export interface WatchSettingsFormProps {
@@ -111,22 +111,31 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
       )
       if (up.error) throw up.error
 
-      // 2) derive + persist watch_lanes (reuse unchanged, insert only missing).
+      // 2) derive + reconcile watch_lanes (schedule.md §3). Removed departments
+      //    are marked INACTIVE (never deleted -> fairness history preserved);
+      //    re-added departments re-activate their existing lane (no duplicate, so
+      //    ledger keys stay stable); genuinely new departments are inserted.
+      //    The engine schedules ACTIVE lanes only.
       const desired = deriveLanes(tier, values.selected_departments)
-      const { data: have, error: lanesErr } = await supabase.from('watch_lanes').select('id,kind,department').eq('vessel_id', vesselId)
+      const { data: have, error: lanesErr } = await supabase
+        .from('watch_lanes').select('kind,department,active').eq('vessel_id', vesselId)
       if (lanesErr) throw lanesErr
-      const keyOf = (l: { kind: string; department: string | null }) => `${l.kind}:${l.department ?? ''}`
-      const present = new Set((have ?? []).map(keyOf))
-      const toInsert = desired
-        .filter((l) => !present.has(keyOf(l)))
-        .map((l) => ({ vessel_id: vesselId, kind: l.kind, department: l.department, label: l.label }))
-      if (toInsert.length) {
-        const ins = await supabase.from('watch_lanes').insert(toInsert)
+      const plan = reconcileLanes((have ?? []) as ExistingLane[], desired)
+      if (plan.toInsert.length) {
+        const ins = await supabase.from('watch_lanes').insert(
+          plan.toInsert.map((l) => ({ vessel_id: vesselId, kind: l.kind, department: l.department, label: l.label, active: true }))
+        )
         if (ins.error) throw ins.error
       }
-      // NB: lanes no longer selected are intentionally NOT deleted (would cascade
-      // away fairness history). Proper "retire/inactive" needs a schema flag —
-      // deferred to Phase 6/11 (see PHASE5 note).
+      const setActive = async (lane: LaneRef, active: boolean) => {
+        // department can be null (solo) -> use .is(), not .eq()
+        let q = supabase.from('watch_lanes').update({ active }).eq('vessel_id', vesselId).eq('kind', lane.kind)
+        q = lane.department === null ? q.is('department', null) : q.eq('department', lane.department)
+        const { error } = await q
+        if (error) throw error
+      }
+      for (const l of plan.toReactivate) await setActive(l, true)
+      for (const l of plan.toDeactivate) await setActive(l, false)
 
       setSaved(true)
       await onSaved?.()

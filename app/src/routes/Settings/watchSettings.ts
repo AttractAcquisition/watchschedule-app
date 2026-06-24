@@ -62,7 +62,49 @@ export interface DerivedLane {
 }
 
 // schedule.md §3 — Solo -> 1 solo lane; Dual -> 2 dept lanes; Triple -> 3 dept lanes.
+// These are the desired ACTIVE lanes for the current settings.
 export function deriveLanes(tier: Tier, depts: Department[]): DerivedLane[] {
   if (tier === 'solo') return [{ kind: 'solo', department: null, label: 'Watch' }]
   return depts.map((d) => ({ kind: 'dept', department: d, label: DEPT_LABEL[d] }))
+}
+
+export interface ExistingLane {
+  kind: 'solo' | 'dept'
+  department: Department | null
+  active: boolean
+}
+export interface LaneRef {
+  kind: 'solo' | 'dept'
+  department: Department | null
+}
+export interface LanePlan {
+  toInsert: DerivedLane[]
+  toReactivate: LaneRef[]
+  toDeactivate: LaneRef[]
+}
+
+const laneKey = (l: { kind: string; department: Department | null }) => `${l.kind}:${l.department ?? ''}`
+
+// Reconcile existing lanes against the desired set (schedule.md §3). Never deletes:
+//   - desired lane absent        -> insert (new, active)
+//   - desired lane exists+inactive -> re-activate (flip active=true; no duplicate,
+//                                     so the ledger key stays stable)
+//   - existing active lane not desired -> de-activate (retire; history retained)
+// Re-activation is an UPDATE on the unique (vessel_id, kind, department) row, so it
+// never conflicts with the unique constraint.
+export function reconcileLanes(existing: ExistingLane[], desired: DerivedLane[]): LanePlan {
+  const byKey = new Map(existing.map((l) => [laneKey(l), l]))
+  const desiredKeys = new Set(desired.map(laneKey))
+  const toInsert: DerivedLane[] = []
+  const toReactivate: LaneRef[] = []
+  for (const d of desired) {
+    const e = byKey.get(laneKey(d))
+    if (!e) toInsert.push(d)
+    else if (!e.active) toReactivate.push({ kind: d.kind, department: d.department })
+  }
+  const toDeactivate: LaneRef[] = []
+  for (const e of existing) {
+    if (e.active && !desiredKeys.has(laneKey(e))) toDeactivate.push({ kind: e.kind, department: e.department })
+  }
+  return { toInsert, toReactivate, toDeactivate }
 }

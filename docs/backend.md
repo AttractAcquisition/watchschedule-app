@@ -142,12 +142,14 @@ create table watch_lanes (
   kind        watch_lane_kind not null,        -- 'solo' or 'dept'
   department  department,                       -- null when kind='solo'; set when kind='dept'
   label       text not null,                    -- 'Watch' (solo) or 'Deck' / 'Interior' etc.
+  active      boolean not null default true,    -- false = retired (kept for fairness history, never scheduled)
   created_at  timestamptz not null default now(),
   unique(vessel_id, kind, department)
 );
 create index on watch_lanes(vessel_id);
+create index on watch_lanes(vessel_id, active);
 ```
-> Solo -> exactly one lane (`kind='solo'`). Dual -> two `dept` lanes. Triple -> three `dept` lanes. `generate-schedule` and `seed-fairness` operate per lane.
+> Solo -> exactly one lane (`kind='solo'`). Dual -> two `dept` lanes. Triple -> three `dept` lanes. `generate-schedule` and `seed-fairness` operate per lane, on **`active=true` lanes only**. Retiring a department sets `active=false` (its `fairness_ledger`/`fairness_events` are retained — never deleted); re-adding it re-activates the existing lane (an UPDATE on the `unique(vessel_id, kind, department)` row, so no duplicate) so ledger keys stay stable. See schedule.md §3.
 
 **`schedules`** — a generated schedule run (a versioned container).
 ```sql

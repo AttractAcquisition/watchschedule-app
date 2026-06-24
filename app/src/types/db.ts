@@ -1,9 +1,3 @@
-// GENERATED FILE — do not edit by hand.
-// Source: Supabase schema for project gvpyknochnntoqsetomk (org "Watch Schedule").
-// Regenerate after any schema migration:
-//   supabase gen types typescript  (or the Supabase MCP generate_typescript_types)
-// Phase 1 (backend.md §2): 11 tables + 7 enums + current_vessel_id().
-
 export type Json =
   | string
   | number
@@ -17,6 +11,31 @@ export type Database = {
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.5"
+  }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
   }
   public: {
     Tables: {
@@ -463,6 +482,7 @@ export type Database = {
       }
       watch_lanes: {
         Row: {
+          active: boolean
           created_at: string
           department: Database["public"]["Enums"]["department"] | null
           id: string
@@ -471,6 +491,7 @@ export type Database = {
           vessel_id: string
         }
         Insert: {
+          active?: boolean
           created_at?: string
           department?: Database["public"]["Enums"]["department"] | null
           id?: string
@@ -479,6 +500,7 @@ export type Database = {
           vessel_id: string
         }
         Update: {
+          active?: boolean
           created_at?: string
           department?: Database["public"]["Enums"]["department"] | null
           id?: string
@@ -688,6 +710,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       day_type: ["weekday", "weekend"],

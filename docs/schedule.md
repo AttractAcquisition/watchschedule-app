@@ -40,7 +40,9 @@ Lanes are the unit of generation and of fairness. Derive (and persist to `watch_
 - **Dual** -> exactly **two** lanes: `kind='dept'`, one per selected department. Pool of each = eligible crew in that department.
 - **Triple** -> exactly **three** lanes: `kind='dept'`, one per selected department.
 
-If lanes already exist for the vessel and settings are unchanged, reuse them (so the ledger keys stay stable). If `selected_departments` changed since last time, reconcile: create new lanes, retire lanes no longer used (retain their ledger history but mark inactive — do not delete fairness history). **Changing tier/departments is a significant action**; on reconcile, surface to the captain that fairness for a newly added department starts fresh (no history) unless seeded.
+If lanes already exist for the vessel and settings are unchanged, reuse them (so the ledger keys stay stable). If `selected_departments` changed since last time, reconcile via the `watch_lanes.active` flag (never delete — that would cascade away fairness history): create genuinely new lanes (`active=true`); retire lanes no longer used by setting **`active=false`** (their `fairness_ledger`/`fairness_events` are retained); and if a previously-retired department is re-added, **re-activate its existing lane** (`active=true`) rather than inserting a duplicate, so the ledger key stays stable. **Changing tier/departments is a significant action**; on reconcile, surface to the captain that fairness for a newly added department starts fresh (no history) unless seeded.
+
+> **Active-lane contract (Phase 6/7 must honour):** generation and the fairness engine operate on **`active=true` lanes only**. Retired (`active=false`) lanes are kept for history and are never scheduled against.
 
 > The lane is the boundary of fairness. One ledger per lane. The engine loops lanes independently — there is no cross-lane balancing (a deckhand's burden never affects an engineer's).
 
