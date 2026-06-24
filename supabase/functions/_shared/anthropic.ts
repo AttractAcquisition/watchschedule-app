@@ -45,6 +45,32 @@ export async function claudeMessages(opts: {
     .join('')
 }
 
+export interface ChatTurn {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+// Multi-turn chat: a separate `system` prompt + a full messages array (history +
+// current). Used by schedule-chat. Returns the assistant's text.
+export async function claudeChat(opts: {
+  system: string
+  messages: ChatTurn[]
+  maxTokens?: number
+}): Promise<string> {
+  const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set')
+  const model = Deno.env.get('ANTHROPIC_MODEL') ?? 'claude-sonnet-4-6'
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({ model, max_tokens: opts.maxTokens ?? 1024, system: opts.system, messages: opts.messages }),
+  })
+  if (!res.ok) throw new Error(`anthropic ${res.status}: ${await res.text()}`)
+  const data = (await res.json()) as { content?: ClaudeBlock[] }
+  return (data.content ?? []).filter((b) => b.type === 'text' && typeof b.text === 'string').map((b) => b.text).join('')
+}
+
 // Defensively extract a JSON object/array from a model reply that may be wrapped
 // in prose or ```json fences. Returns the parsed value or throws.
 export function parseJsonLoose<T>(raw: string): T {

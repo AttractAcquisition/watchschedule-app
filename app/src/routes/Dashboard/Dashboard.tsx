@@ -9,6 +9,7 @@ import { useDashboardData } from './useDashboardData'
 import { FairnessPanel } from './FairnessPanel'
 import { WatchCalendar } from './WatchCalendar'
 import { RegenerateButton } from './RegenerateButton'
+import { ScheduleChat } from './ScheduleChat'
 
 export default function Dashboard() {
   const { profile } = useAuth()
@@ -49,6 +50,8 @@ export default function Dashboard() {
 
       <WatchCalendar data={data} />
       <FairnessPanel data={data} />
+
+      <ScheduleChat />
     </div>
   )
 }
