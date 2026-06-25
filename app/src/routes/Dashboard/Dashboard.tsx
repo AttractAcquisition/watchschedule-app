@@ -9,6 +9,7 @@ import { useDashboardData } from './useDashboardData'
 import { FairnessPanel } from './FairnessPanel'
 import { WatchCalendar } from './WatchCalendar'
 import { RegenerateButton } from './RegenerateButton'
+import { CopyWhatsAppButton } from './CopyWhatsAppButton'
 import { ScheduleChat } from './ScheduleChat'
 
 export default function Dashboard() {
@@ -38,7 +39,10 @@ export default function Dashboard() {
           <p className="ws-eyebrow">— Dashboard</p>
           <h1 className="mt-ws-1 font-display text-ws-xl tracking-ws-tight text-ws-offwhite">Watch overview</h1>
         </div>
-        <RegenerateButton vesselId={vesselId} hasSchedule={!!data.schedule} />
+        <div className="flex flex-wrap items-center gap-ws-3">
+          <CopyWhatsAppButton data={data} />
+          <RegenerateButton vesselId={vesselId} hasSchedule={!!data.schedule} />
+        </div>
       </div>
 
       {crewChanged && (
