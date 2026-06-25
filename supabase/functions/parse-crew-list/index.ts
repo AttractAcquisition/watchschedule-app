@@ -44,7 +44,7 @@ Deno.serve(async (req) => {
       { global: { headers: { Authorization: authHeader } }, auth: { persistSession: false } }
     )
     const { data: userData, error: userErr } = await userClient.auth.getUser()
-    if (userErr || !userData.user) return json({ error: 'unauthorized' }, 401)
+    if (userErr || !userData.user) return json(req, { error: 'unauthorized' }, 401)
 
     const admin = createClient(
       Deno.env.get('SUPABASE_URL')!,
@@ -52,23 +52,23 @@ Deno.serve(async (req) => {
       { auth: { persistSession: false } }
     )
     const { data: vessel } = await admin.from('vessels').select('id').eq('owner_id', userData.user.id).maybeSingle()
-    if (!vessel) return json({ error: 'vessel not found for user' }, 400)
+    if (!vessel) return json(req, { error: 'vessel not found for user' }, 400)
 
     const { object_path } = (await req.json()) as { object_path?: string }
-    if (!object_path) return json({ error: 'object_path required' }, 400)
+    if (!object_path) return json(req, { error: 'object_path required' }, 400)
     // Security: the path must be inside THIS vessel's folder. Never read another
     // vessel's object regardless of what the client sends.
     if (!object_path.startsWith(`${vessel.id}/`)) {
-      return json({ error: 'object_path outside caller vessel' }, 403)
+      return json(req, { error: 'object_path outside caller vessel' }, 403)
     }
 
     const ext = object_path.split('.').pop()?.toLowerCase() ?? ''
     const mediaType = MEDIA[ext]
-    if (!mediaType) return json({ error: `unsupported image type: .${ext}` }, 400)
+    if (!mediaType) return json(req, { error: `unsupported image type: .${ext}` }, 400)
 
     // --- Read the image (service-role) and send to Claude vision. ---
     const { data: blob, error: dlErr } = await admin.storage.from('crew-lists').download(object_path)
-    if (dlErr || !blob) return json({ error: `could not read image: ${dlErr?.message ?? 'not found'}` }, 400)
+    if (dlErr || !blob) return json(req, { error: `could not read image: ${dlErr?.message ?? 'not found'}` }, 400)
     const base64 = encodeBase64(new Uint8Array(await blob.arrayBuffer()))
 
     const reply = await claudeMessages({
@@ -92,9 +92,9 @@ Deno.serve(async (req) => {
       })
       .filter((c) => c.full_name.length > 0)
 
-    return json({ crew })
+    return json(req, { crew })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown error'
-    return json({ error: message }, 500)
+    return json(req, { error: message }, 500)
   }
 })

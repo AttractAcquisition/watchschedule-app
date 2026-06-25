@@ -28,7 +28,7 @@ Deno.serve(async (req) => {
       { global: { headers: { Authorization: authHeader } }, auth: { persistSession: false } }
     )
     const { data: userData, error: userErr } = await userClient.auth.getUser()
-    if (userErr || !userData.user) return json({ error: 'unauthorized' }, 401)
+    if (userErr || !userData.user) return json(req, { error: 'unauthorized' }, 401)
 
     // RLS-scoped read of the caller's own profile row.
     const { data: profile, error: pErr } = await userClient
@@ -36,17 +36,17 @@ Deno.serve(async (req) => {
       .select('stripe_customer_id')
       .eq('id', userData.user.id)
       .maybeSingle()
-    if (pErr) return json({ error: pErr.message }, 500)
-    if (!profile?.stripe_customer_id) return json({ error: 'no billing customer on file' }, 400)
+    if (pErr) return json(req, { error: pErr.message }, 500)
+    if (!profile?.stripe_customer_id) return json(req, { error: 'no billing customer on file' }, 400)
 
     const session = await stripe.billingPortal.sessions.create({
       customer: profile.stripe_customer_id,
       return_url: `${APP_URL}/settings`,
     })
 
-    return json({ url: session.url })
+    return json(req, { url: session.url })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown error'
-    return json({ error: message }, 500)
+    return json(req, { error: message }, 500)
   }
 })

@@ -50,24 +50,24 @@ Deno.serve(async (req) => {
       global: { headers: { Authorization: authHeader } }, auth: { persistSession: false },
     })
     const { data: userData, error: userErr } = await userClient.auth.getUser()
-    if (userErr || !userData.user) return json({ error: 'unauthorized' }, 401)
+    if (userErr || !userData.user) return json(req, { error: 'unauthorized' }, 401)
     const userId = userData.user.id
 
     const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } })
 
     // reject Solo server-side
     const { data: profile } = await admin.from('profiles').select('product_tier').eq('id', userId).maybeSingle()
-    if (!profile) return json({ error: 'profile not found' }, 400)
-    if (profile.product_tier === 'solo') return json({ error: 'seeding is for Dual/Triple only' }, 403)
+    if (!profile) return json(req, { error: 'profile not found' }, 400)
+    if (profile.product_tier === 'solo') return json(req, { error: 'seeding is for Dual/Triple only' }, 403)
 
     const { data: vessel } = await admin.from('vessels').select('id').eq('owner_id', userId).maybeSingle()
-    if (!vessel) return json({ error: 'vessel not found for user' }, 400)
+    if (!vessel) return json(req, { error: 'vessel not found for user' }, 400)
     const vesselId = vessel.id as string
 
     const { object_paths } = (await req.json()) as { object_paths?: string[] }
-    if (!Array.isArray(object_paths) || object_paths.length === 0) return json({ error: 'object_paths required' }, 400)
+    if (!Array.isArray(object_paths) || object_paths.length === 0) return json(req, { error: 'object_paths required' }, 400)
     for (const p of object_paths) {
-      if (!p.startsWith(`${vesselId}/`)) return json({ error: 'object_path outside caller vessel' }, 403)
+      if (!p.startsWith(`${vesselId}/`)) return json(req, { error: 'object_path outside caller vessel' }, 403)
     }
 
     // --- Claude vision extraction across all images ---
@@ -75,9 +75,9 @@ Deno.serve(async (req) => {
     for (const path of object_paths) {
       const ext = path.split('.').pop()?.toLowerCase() ?? ''
       const mediaType = MEDIA[ext]
-      if (!mediaType) return json({ error: `unsupported image type: .${ext}` }, 400)
+      if (!mediaType) return json(req, { error: `unsupported image type: .${ext}` }, 400)
       const { data: blob, error: dlErr } = await admin.storage.from('past-schedules').download(path)
-      if (dlErr || !blob) return json({ error: `could not read image: ${dlErr?.message ?? 'not found'}` }, 400)
+      if (dlErr || !blob) return json(req, { error: `could not read image: ${dlErr?.message ?? 'not found'}` }, 400)
       const base64 = encodeBase64(new Uint8Array(await blob.arrayBuffer()))
       const reply = await claudeMessages({
         maxTokens: 8192,
@@ -175,15 +175,15 @@ Deno.serve(async (req) => {
     await admin.from('fairness_ledger').delete().eq('vessel_id', vesselId)
     if (ledgerRows.length) {
       const ins = await admin.from('fairness_ledger').insert(ledgerRows)
-      if (ins.error) return json({ error: `seed insert failed: ${ins.error.message}` }, 500)
+      if (ins.error) return json(req, { error: `seed insert failed: ${ins.error.message}` }, 500)
     }
 
     // mark uploads parsed (replace prior past_schedule rows for idempotency)
     await admin.from('storage_uploads').delete().eq('vessel_id', vesselId).eq('kind', 'past_schedule')
     await admin.from('storage_uploads').insert(object_paths.map((p) => ({ vessel_id: vesselId, bucket: 'past-schedules', object_path: p, kind: 'past_schedule', parsed: true })))
 
-    return json({ seeded: true, lanes: responseLanes, unmatched: [...unmatchedSet], records_extracted: records.length })
+    return json(req, { seeded: true, lanes: responseLanes, unmatched: [...unmatchedSet], records_extracted: records.length })
   } catch (err) {
-    return json({ error: err instanceof Error ? err.message : 'unknown error' }, 500)
+    return json(req, { error: err instanceof Error ? err.message : 'unknown error' }, 500)
   }
 })

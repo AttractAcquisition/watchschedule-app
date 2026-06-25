@@ -40,15 +40,15 @@ Deno.serve(async (req) => {
       { global: { headers: { Authorization: authHeader } }, auth: { persistSession: false } }
     )
     const { data: userData, error: userErr } = await userClient.auth.getUser()
-    if (userErr || !userData.user) return json({ error: 'unauthorized' }, 401)
+    if (userErr || !userData.user) return json(req, { error: 'unauthorized' }, 401)
     const user = userData.user
 
     const { tier, interval } = (await req.json()) as { tier?: Tier; interval?: Interval }
-    if (!tier || !PRICE_ENV[tier]) return json({ error: 'invalid tier' }, 400)
-    if (interval !== 'month' && interval !== 'year') return json({ error: 'invalid interval' }, 400)
+    if (!tier || !PRICE_ENV[tier]) return json(req, { error: 'invalid tier' }, 400)
+    if (interval !== 'month' && interval !== 'year') return json(req, { error: 'invalid interval' }, 400)
 
     const priceId = Deno.env.get(PRICE_ENV[tier][interval])
-    if (!priceId) return json({ error: `price not configured: ${PRICE_ENV[tier][interval]}` }, 500)
+    if (!priceId) return json(req, { error: `price not configured: ${PRICE_ENV[tier][interval]}` }, 500)
 
     // --- Re-derive vessel_id server-side (service-role; never trust client). ---
     const admin = createClient(
@@ -61,7 +61,7 @@ Deno.serve(async (req) => {
       .select('id')
       .eq('owner_id', user.id)
       .maybeSingle()
-    if (vErr || !vessel) return json({ error: 'vessel not found for user' }, 400)
+    if (vErr || !vessel) return json(req, { error: 'vessel not found for user' }, 400)
     const vesselId = vessel.id
 
     // --- Find or create the Stripe customer for this user. ---
@@ -97,9 +97,9 @@ Deno.serve(async (req) => {
       subscription_data: { metadata: { user_id: user.id, vessel_id: vesselId, tier } },
     })
 
-    return json({ url: session.url })
+    return json(req, { url: session.url })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown error'
-    return json({ error: message }, 500)
+    return json(req, { error: message }, 500)
   }
 })

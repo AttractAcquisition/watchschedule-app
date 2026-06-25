@@ -24,13 +24,13 @@ Deno.serve(async (req) => {
       global: { headers: { Authorization: authHeader } }, auth: { persistSession: false },
     })
     const { data: userData, error: userErr } = await userClient.auth.getUser()
-    if (userErr || !userData.user) return json({ error: 'unauthorized' }, 401)
+    if (userErr || !userData.user) return json(req, { error: 'unauthorized' }, 401)
     const userId = userData.user.id
 
     const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } })
 
     const { data: vessel } = await admin.from('vessels').select('id').eq('owner_id', userId).maybeSingle()
-    if (!vessel) return json({ error: 'vessel not found for user' }, 400)
+    if (!vessel) return json(req, { error: 'vessel not found for user' }, 400)
     const vesselId = vessel.id as string
 
     const body = (await req.json().catch(() => ({}))) as { from_date?: string; regenerate?: boolean }
@@ -38,7 +38,7 @@ Deno.serve(async (req) => {
 
     // --- inputs ---
     const { data: settings } = await admin.from('watch_settings').select('*').eq('vessel_id', vesselId).maybeSingle()
-    if (!settings) return json({ error: 'watch_settings not configured' }, 400)
+    if (!settings) return json(req, { error: 'watch_settings not configured' }, 400)
 
     // active lanes only; derive + insert if none exist yet (defensive)
     let { data: lanes } = await admin.from('watch_lanes').select('id,kind,department,active').eq('vessel_id', vesselId)
@@ -109,13 +109,13 @@ Deno.serve(async (req) => {
     const { data: sched, error: schedErr } = await admin.from('schedules').insert({
       vessel_id: vesselId, start_date: plan.start_date, end_date: plan.end_date, horizon_weeks: plan.horizon_weeks, is_current: true,
     }).select('id').single()
-    if (schedErr || !sched) return json({ error: `schedule insert failed: ${schedErr?.message}` }, 500)
+    if (schedErr || !sched) return json(req, { error: `schedule insert failed: ${schedErr?.message}` }, 500)
     const scheduleId = sched.id as string
 
     if (plan.assignments.length) {
       const rows = plan.assignments.map((a) => ({ schedule_id: scheduleId, vessel_id: vesselId, lane_id: a.lane_id, crew_id: a.crew_id, watch_date: a.watch_date, day_type: a.day_type, is_friday: a.is_friday }))
       const ins = await admin.from('watch_assignments').insert(rows)
-      if (ins.error) return json({ error: `assignments insert failed: ${ins.error.message}` }, 500)
+      if (ins.error) return json(req, { error: `assignments insert failed: ${ins.error.message}` }, 500)
     }
 
     // fairness_ledger upsert (final cumulative state + score)
@@ -134,13 +134,13 @@ Deno.serve(async (req) => {
     }
     if (ledgerRows.length) {
       const up = await admin.from('fairness_ledger').upsert(ledgerRows, { onConflict: 'lane_id,crew_id' })
-      if (up.error) return json({ error: `ledger upsert failed: ${up.error.message}` }, 500)
+      if (up.error) return json(req, { error: `ledger upsert failed: ${up.error.message}` }, 500)
     }
 
     if (plan.events.length) {
       const evRows = plan.events.map((ev) => ({ vessel_id: vesselId, schedule_id: scheduleId, lane_id: ev.lane_id, crew_id: ev.crew_id, watch_date: ev.watch_date, reason_code: ev.reason_code, detail: ev.detail }))
       const ev = await admin.from('fairness_events').insert(evRows)
-      if (ev.error) return json({ error: `events insert failed: ${ev.error.message}` }, 500)
+      if (ev.error) return json(req, { error: `events insert failed: ${ev.error.message}` }, 500)
     }
 
     // first generation completes onboarding
@@ -149,11 +149,11 @@ Deno.serve(async (req) => {
       await admin.from('profiles').update({ onboarding_complete: true, onboarding_step: 'complete' }).eq('id', userId)
     }
 
-    return json({
+    return json(req, {
       schedule_id: scheduleId, start_date: plan.start_date, end_date: plan.end_date,
       assignments_count: plan.assignments.length, gaps: plan.gaps.length, fairness: plan.scores,
     })
   } catch (err) {
-    return json({ error: err instanceof Error ? err.message : 'unknown error' }, 500)
+    return json(req, { error: err instanceof Error ? err.message : 'unknown error' }, 500)
   }
 })

@@ -33,16 +33,16 @@ Deno.serve(async (req) => {
     const authHeader = req.headers.get('Authorization') ?? ''
     const userClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: authHeader } }, auth: { persistSession: false } })
     const { data: userData, error: userErr } = await userClient.auth.getUser()
-    if (userErr || !userData.user) return json({ error: 'unauthorized' }, 401)
+    if (userErr || !userData.user) return json(req, { error: 'unauthorized' }, 401)
     const userId = userData.user.id
 
     const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } })
     const { data: vessel } = await admin.from('vessels').select('id,name').eq('owner_id', userId).maybeSingle()
-    if (!vessel) return json({ error: 'vessel not found for user' }, 400)
+    if (!vessel) return json(req, { error: 'vessel not found for user' }, 400)
     const vesselId = vessel.id as string
 
     const { message, history } = (await req.json()) as { message?: string; history?: ChatTurn[] }
-    if (!message || typeof message !== 'string') return json({ error: 'message required' }, 400)
+    if (!message || typeof message !== 'string') return json(req, { error: 'message required' }, 400)
 
     // --- load ONLY this vessel's data (server-side tenant scoping) ---
     const [{ data: crewRows }, { data: laneRows }, { data: sched }] = await Promise.all([
@@ -99,8 +99,8 @@ Deno.serve(async (req) => {
       { vessel_id: vesselId, role: 'assistant', content: reply },
     ])
 
-    return json({ reply })
+    return json(req, { reply })
   } catch (err) {
-    return json({ error: err instanceof Error ? err.message : 'unknown error' }, 500)
+    return json(req, { error: err instanceof Error ? err.message : 'unknown error' }, 500)
   }
 })
