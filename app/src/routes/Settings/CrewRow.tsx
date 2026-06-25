@@ -39,8 +39,8 @@ export function CrewRow({ member, onSave, onDelete, busy }: { member: CrewMember
           <select value={department} onChange={(e) => setDepartment(e.target.value as Department)} className="rounded-ws-sm border border-ws-line bg-ws-steel-3 px-ws-2 py-ws-1 text-ws-sm text-ws-text focus:border-ws-gold focus:outline-none">
             {DEPARTMENTS.map((d) => <option key={d} value={d}>{DEPT_LABEL[d]}</option>)}
           </select>
-          <button type="button" onClick={saveEdit} disabled={busy || !name.trim() || !position.trim()} aria-label="Save" className="rounded-ws-sm bg-ws-gold p-ws-1 text-ws-text-on-gold hover:bg-ws-gold-bright disabled:bg-ws-steel-3"><Check className="h-4 w-4" aria-hidden /></button>
-          <button type="button" onClick={() => { setEditing(false); setName(member.full_name); setPosition(member.position); setDepartment(member.department) }} aria-label="Cancel" className="rounded-ws-sm p-ws-1 text-ws-text-muted hover:bg-ws-steel-3 hover:text-ws-text"><X className="h-4 w-4" aria-hidden /></button>
+          <button type="button" onClick={saveEdit} disabled={busy || !name.trim() || !position.trim()} aria-label="Save" className="flex h-10 w-10 items-center justify-center rounded-ws-sm bg-ws-gold text-ws-text-on-gold hover:bg-ws-gold-bright disabled:bg-ws-steel-3"><Check className="h-4 w-4" aria-hidden /></button>
+          <button type="button" onClick={() => { setEditing(false); setName(member.full_name); setPosition(member.position); setDepartment(member.department) }} aria-label="Cancel" className="flex h-10 w-10 items-center justify-center rounded-ws-sm text-ws-text-muted hover:bg-ws-steel-3 hover:text-ws-text"><X className="h-4 w-4" aria-hidden /></button>
         </div>
       ) : (
         <div className="flex items-center justify-between gap-ws-3">
@@ -55,8 +55,8 @@ export function CrewRow({ member, onSave, onDelete, busy }: { member: CrewMember
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-ws-1">
-            <button type="button" onClick={() => setEditing(true)} aria-label="Edit" className="rounded-ws-sm p-ws-1 text-ws-text-muted hover:bg-ws-steel-3 hover:text-ws-text"><Pencil className="h-4 w-4" strokeWidth={1.5} aria-hidden /></button>
-            <button type="button" onClick={() => setConfirmDel(true)} aria-label="Delete" className="rounded-ws-sm p-ws-1 text-ws-text-muted hover:bg-ws-steel-3 hover:text-ws-alert"><Trash2 className="h-4 w-4" strokeWidth={1.5} aria-hidden /></button>
+            <button type="button" onClick={() => setEditing(true)} aria-label="Edit" className="flex h-10 w-10 items-center justify-center rounded-ws-sm text-ws-text-muted hover:bg-ws-steel-3 hover:text-ws-text"><Pencil className="h-4 w-4" strokeWidth={1.5} aria-hidden /></button>
+            <button type="button" onClick={() => setConfirmDel(true)} aria-label="Delete" className="flex h-10 w-10 items-center justify-center rounded-ws-sm text-ws-text-muted hover:bg-ws-steel-3 hover:text-ws-alert"><Trash2 className="h-4 w-4" strokeWidth={1.5} aria-hidden /></button>
           </div>
         </div>
       )}

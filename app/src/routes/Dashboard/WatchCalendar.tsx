@@ -79,11 +79,11 @@ export function WatchCalendar({ data }: { data: DashboardData }) {
       <div className="flex items-center gap-ws-3">
         <span className="font-mono text-ws-sm text-ws-text-muted">{right}</span>
         <div className="flex items-center gap-ws-1">
-          <button type="button" onClick={() => setOffset((o) => o - 1)} aria-label="Previous" className="rounded-ws-sm p-ws-1 text-ws-text-muted hover:bg-ws-steel-3 hover:text-ws-text">
+          <button type="button" onClick={() => setOffset((o) => o - 1)} aria-label="Previous" className="flex h-10 w-10 items-center justify-center rounded-ws-sm text-ws-text-muted hover:bg-ws-steel-3 hover:text-ws-text">
             <ChevronLeft className="h-4 w-4" strokeWidth={1.5} aria-hidden />
           </button>
-          <button type="button" onClick={() => setOffset(0)} className="rounded-ws-sm px-ws-2 py-ws-1 text-ws-xs text-ws-text-muted hover:bg-ws-steel-3 hover:text-ws-text">Today</button>
-          <button type="button" onClick={() => setOffset((o) => o + 1)} aria-label="Next" className="rounded-ws-sm p-ws-1 text-ws-text-muted hover:bg-ws-steel-3 hover:text-ws-text">
+          <button type="button" onClick={() => setOffset(0)} className="min-h-[40px] rounded-ws-sm px-ws-3 py-ws-1 text-ws-xs text-ws-text-muted hover:bg-ws-steel-3 hover:text-ws-text">Today</button>
+          <button type="button" onClick={() => setOffset((o) => o + 1)} aria-label="Next" className="flex h-10 w-10 items-center justify-center rounded-ws-sm text-ws-text-muted hover:bg-ws-steel-3 hover:text-ws-text">
             <ChevronRight className="h-4 w-4" strokeWidth={1.5} aria-hidden />
           </button>
         </div>

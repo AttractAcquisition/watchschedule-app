@@ -32,3 +32,17 @@
     outline-offset: 2px;
   }
 }
+
+/* Reduced motion (branding.md §8): disable non-essential motion — gauge animation,
+ * generating shimmer/spinners, calendar transitions — and render at the final
+ * state. (GaugeBar also renders at value directly under this preference.) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

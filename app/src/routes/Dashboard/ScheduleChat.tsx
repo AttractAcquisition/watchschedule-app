@@ -72,7 +72,7 @@ export function ScheduleChat() {
           <Check className="h-4 w-4 text-ws-gold" strokeWidth={2} aria-hidden />
           <span className="font-display text-ws-md font-semibold text-ws-offwhite">Schedule assistant</span>
         </div>
-        <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="rounded-ws-sm p-ws-1 text-ws-text-muted hover:bg-ws-steel-3 hover:text-ws-text">
+        <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="flex h-10 w-10 items-center justify-center rounded-ws-sm text-ws-text-muted hover:bg-ws-steel-3 hover:text-ws-text">
           <X className="h-4 w-4" strokeWidth={1.5} aria-hidden />
         </button>
       </header>
@@ -112,7 +112,7 @@ export function ScheduleChat() {
           placeholder="Ask about the schedule…"
           className="flex-1 rounded-ws-sm border border-ws-line bg-ws-steel-3 px-ws-3 py-ws-2 text-ws-sm text-ws-text placeholder:text-ws-text-faint focus:border-ws-gold focus:outline-none"
         />
-        <button type="submit" disabled={sending || !input.trim()} aria-label="Send" className="flex items-center justify-center rounded-ws-sm bg-ws-gold p-ws-2 text-ws-text-on-gold transition-all hover:bg-ws-gold-bright disabled:bg-ws-steel-3 disabled:text-ws-text-faint">
+        <button type="submit" disabled={sending || !input.trim()} aria-label="Send" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-ws-sm bg-ws-gold text-ws-text-on-gold transition-all hover:bg-ws-gold-bright disabled:bg-ws-steel-3 disabled:text-ws-text-faint">
           <Send className="h-4 w-4" strokeWidth={1.5} aria-hidden />
         </button>
       </form>
