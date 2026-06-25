@@ -92,7 +92,7 @@ updateLedger(lane, crew_id, date, dayType, isFriday)
 - **Lane rule:** Solo = 1 lane (`kind='solo'`, all eligible crew, no dept); Dual = 2 dept lanes; Triple = 3 dept lanes. **One fairness ledger per lane.**
 - **Horizon cap:** `horizon_weeks ∈ [1,13]` (~3 months) — DB check **and** UI control **and** engine clamp.
 - **Departments (4):** enum `deck, interior, engineering, officer`. Command/Captain is a role, not a watch dept — handled via per-member `eligible` flag.
-- **Tiers (3):** `solo` / `dual` / `triple`; Solo €39, Dual €79, Triple €149 monthly; annual = 2 months free.
+- **Tiers (3):** `solo` / `dual` / `triple`; Solo €39, Dual €99, Triple €199 monthly; annual = 2 months free. (Marketing site = pricing source of truth; B1 realigned Dual/Triple up, reversing the Phase-3 €79/€149 figure.)
 - **Gate:** Auth → `payment_status` → `onboarding_complete`. Gate columns webhook-written, client read-only; RLS is the real gate.
 - **Day math:** ISO weekday — Friday = ISO 5, weekend = ISO 6/7. `watch_date` stored as plain `date`.
 - **Claude model:** `ANTHROPIC_MODEL=claude-sonnet-4-6`, server-side only (`parse-crew-list`, `seed-fairness`, `schedule-chat`).

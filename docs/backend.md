@@ -363,6 +363,13 @@ ANTHROPIC_MODEL=claude-sonnet-4-6    # default model string for server calls
 APP_URL=https://app.watchschedule.com
 ```
 
+> **Price amounts (B1, marketing-site source of truth):** Solo €39/mo (€390/yr),
+> Dual €99/mo (€990/yr), Triple €199/mo (€1990/yr). The six `STRIPE_PRICE_*`
+> secrets point at the test-mode Price IDs at these amounts; the Dual/Triple
+> secrets were repointed to the €99/€199 IDs in B1 (the old €79/€149 Price
+> objects are archived, not deleted). Stripe Prices are immutable — amount
+> changes are always create-new + archive-old, never an edit.
+
 ---
 
 ## 6. Edge Functions (Deno) — Contracts

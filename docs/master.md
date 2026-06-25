@@ -33,7 +33,7 @@ These are the load-bearing seams between documents. They were cross-checked in v
 | **Lane rule** | Solo = 1 lane (all eligible crew, no dept); Dual = 2 dept lanes; Triple = 3 dept lanes; one fairness ledger per lane | backend.md (watch_lanes + dept-count check), frontend.md §4.4/§8, schedule.md §3, fairness.md §1 |
 | **Horizon cap** | `horizon_weeks` ∈ [1,13] (~3 months); enforced by DB check + UI control + engine clamp | backend.md §2, frontend.md §4.4, schedule.md §8 |
 | **Departments (4)** | enum `deck, interior, engineering, officer` (Command/Captain is a role, not a watch dept; handled via per-member eligibility) | backend.md enum; matched in frontend.md, schedule.md |
-| **Tiers (3)** | `solo` / `dual` / `triple`; Solo €39, Dual €79, Triple €149 (monthly); annual = 2 months free | backend.md enum + price secrets, frontend.md §4.2 |
+| **Tiers (3)** | `solo` / `dual` / `triple`; Solo €39, Dual €99, Triple €199 (monthly); annual = 2 months free (B1 realigned Dual/Triple up to the marketing-site source of truth, reversing the Phase-3 €79/€149 figure) | backend.md enum + price secrets, frontend.md §4.2 |
 | **Gate** | Auth -> `payment_status` -> `onboarding_complete`; gate columns webhook-written, client read-only; RLS is the real gate | frontend.md §2, backend.md §3 (policy + trigger) |
 | **Claude model** | `ANTHROPIC_MODEL=claude-sonnet-4-6`, server-side only (parse-crew-list, seed-fairness, schedule-chat) | backend.md §5, §6.4, §6.5, §6.7 |
 

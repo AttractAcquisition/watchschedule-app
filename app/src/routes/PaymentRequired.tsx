@@ -23,12 +23,13 @@ interface Plan {
   popular?: boolean
 }
 
-// Pricing per frontend.md §4.2 / master.md seam index. Annual = 2 months free,
-// so the yearly figure is monthly × 10 (e.g. Solo €390, Dual €790, Triple €1490).
+// Pricing per frontend.md §4.2 / master.md seam index (marketing site = source of
+// truth). Annual = 2 months free, so the yearly figure is monthly × 10
+// (e.g. Solo €390, Dual €990, Triple €1990).
 const PLANS: Plan[] = [
   { tier: 'solo', name: 'Solo Watch', monthly: 39, blurb: 'One shared watch pool.', lanes: '1 lane · all eligible crew' },
-  { tier: 'dual', name: 'Dual Watch', monthly: 79, blurb: 'Two department rotations.', lanes: '2 lanes · pick 2 departments', popular: true },
-  { tier: 'triple', name: 'Triple Watch', monthly: 149, blurb: 'Three department rotations.', lanes: '3 lanes · pick 3 departments' },
+  { tier: 'dual', name: 'Dual Watch', monthly: 99, blurb: 'Two department rotations.', lanes: '2 lanes · pick 2 departments', popular: true },
+  { tier: 'triple', name: 'Triple Watch', monthly: 199, blurb: 'Three department rotations.', lanes: '3 lanes · pick 3 departments' },
 ]
 
 const euro = (n: number) => `€${n.toLocaleString('en-IE')}`
