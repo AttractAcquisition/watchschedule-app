@@ -10,6 +10,7 @@ import { FairnessPanel } from './FairnessPanel'
 import { WatchCalendar } from './WatchCalendar'
 import { RegenerateButton } from './RegenerateButton'
 import { CopyWhatsAppButton } from './CopyWhatsAppButton'
+import { ScheduleHistoryButton } from './ScheduleHistory'
 import { ScheduleChat } from './ScheduleChat'
 
 export default function Dashboard() {
@@ -40,6 +41,7 @@ export default function Dashboard() {
           <h1 className="mt-ws-1 font-display text-ws-xl tracking-ws-tight text-ws-offwhite">Watch overview</h1>
         </div>
         <div className="flex flex-wrap items-center gap-ws-3">
+          <ScheduleHistoryButton data={data} />
           <CopyWhatsAppButton data={data} />
           <RegenerateButton vesselId={vesselId} hasSchedule={!!data.schedule} />
         </div>

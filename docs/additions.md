@@ -80,35 +80,38 @@ Highest real-world-adoption lever in the product. The schedule's value is realis
 
 ---
 
-## PHASE A2 — Schedule Version History
+## PHASE A2 — Schedule History (read-only)
+
+> **Audit (A2.0) established no approval/publication/locking lifecycle exists in the product — schedules are generated, not approved; the original "who approved/locked it" / `schedule_health_scores` / publish-lock language assumed a non-existent feature and was scoped out.** What the live schema actually retains: every past generated schedule survives regeneration (`is_current` flips to `false`, rows are never deleted), with its `generated_at` timestamp and its `watch_assignments` (and `fairness_events`) intact. A2 therefore surfaces that history — no schema change, no approval system.
 
 ### Objective
-Ensure every published schedule is retrievable with its publication date and approval record, and surface that history in the UI. **This phase begins as an audit:** the schedule lifecycle already has versioning/audit concepts and a `schedule_health_scores`-style persistence layer, so part or all of this may already exist at the data layer.
+A read-only history of past **generated** schedules: list prior schedules for the vessel by `generated_at` (most recent first) with a derived version index (v1, v2, …; the current one distinguished), each openable read-only to view that version's assignments. Pure surface over already-persisted, already-client-readable data.
 
 ### Why
-Audit trail and dispute resolution. When a crew member disputes weekend burden, the captain needs the receipts. Also a credibility signal for the professional-grade positioning.
+Audit trail and dispute resolution. When a crew member disputes weekend burden, the captain needs the receipts — and the receipts ARE the generated schedules, all of which are already persisted and reconstructable.
 
-### Phase A2.0 — AUDIT FIRST (read-only; no edits, no migrations)
-Before building anything:
-1. Inspect the live schema: does `schedules` (and related tables) already persist every published version, the publication timestamp, and who approved/locked it? Note that prior work touched a health-scores table and the schedule has a `is_current` flag and a publish/lock lifecycle — establish exactly what is already retained.
-2. Determine whether the gap is **data** (something isn't persisted) or **surface** (it's persisted but not displayed). These are very different amounts of work.
-3. Produce a short gap table: for each of {schedule snapshot, publication date, approver/locking user, change/version sequence}, mark `ALREADY PERSISTED` / `PERSISTED BUT NOT SURFACED` / `NOT PERSISTED`.
-4. **Do not build past the gap.** If it's already 90% done, the work is a retrieval/display surface only.
+### Phase A2.0 — AUDIT FIRST (read-only; no edits, no migrations)  — DONE
+The audit confirmed the ground truth above. Gap table (live schema):
+- **Schedule snapshot** (`schedules` row + `watch_assignments`): PERSISTED BUT NOT SURFACED.
+- **Generation date** (`generated_at`): PERSISTED BUT NOT SURFACED.
+- **Approver/locking user:** NOT PERSISTED (no approval lifecycle exists).
+- **Version sequence:** NOT PERSISTED (no column); derivable at read time by ordering on `generated_at`.
 
-### Build (only what the audit shows is missing)
-- **If a data gap exists:** add only the minimal columns/rows needed to retain published-schedule history and approval metadata. Follow the inherited model — these are server-written, client-SELECT-only. **Do not** add a parallel new table if existing tables already carry the data. Do not modify the generation/scoring path to capture this; capture at publish/lock time only.
-- **Surface:** a read-only history view listing past published schedules with date, approver, and the ability to open a prior version read-only. No editing of historical schedules. No "restore/revert" in this phase (defer — out of scope).
+### Build (pure surface — no schema change)
+- A read-only history view listing past generated schedules with their generation date and a derived version index, the current one marked. Reads via the existing SELECT-only vessel-scoped RLS — **no new policy, no migration**.
+- Each entry is openable read-only to view that version's `watch_assignments`. No editing of historical schedules. **No "restore/revert"** in this phase (defer — out of scope).
 
 ### Verification gate (all must pass)
-- [ ] Audit gap table produced and reviewed before any write.
-- [ ] Every published schedule is retrievable with publication date and approving user.
-- [ ] History view is strictly read-only; no path to mutate a historical schedule.
-- [ ] If columns were added: RLS is client-SELECT-only, service-role-write; cross-vessel access denied (proven).
+- [ ] Audit gap table produced and reviewed before any build (done in A2.0).
+- [ ] Every past generated schedule is retrievable with its generation date and a version index; the current one is distinguished.
+- [ ] Opening a historical schedule renders that version's assignments correctly (a regenerated-away schedule still shows its original assignments).
+- [ ] History view is strictly read-only; no path to mutate, regenerate-from, or revert a historical schedule.
+- [ ] No migration / no schema change / no new RLS policy (the data and policy already exist).
 - [ ] Generation and fairness scoring paths are untouched.
 - [ ] No "revert/restore" introduced.
 
 ### Spec to update on completion
-`backend.md` (if schema changed) and `frontend.md` (history surface).
+`frontend.md` (history surface). No `backend.md` change — no schema/function change in this phase.
 
 ---
 
