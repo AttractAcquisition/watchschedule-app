@@ -24,6 +24,30 @@ const admin = createClient(
 )
 
 type PaymentStatus = 'unpaid' | 'active' | 'past_due' | 'canceled'
+type Tier = 'solo' | 'dual' | 'triple'
+
+// {priceId -> tier} reverse-map built from the 6 STRIPE_PRICE_* secrets already
+// in the Edge env (the mirror of create-checkout-session's PRICE_ENV). PRICE is
+// billing truth, so deriving product_tier from the subscription's CURRENT price
+// is authoritative — it also corrects tier for any portal-driven price change,
+// and never trusts client/metadata tier claims. Built once per cold start.
+function priceTierMap(): Record<string, Tier> {
+  const pairs: Array<[string | undefined, Tier]> = [
+    [Deno.env.get('STRIPE_PRICE_SOLO_MONTH'), 'solo'], [Deno.env.get('STRIPE_PRICE_SOLO_YEAR'), 'solo'],
+    [Deno.env.get('STRIPE_PRICE_DUAL_MONTH'), 'dual'], [Deno.env.get('STRIPE_PRICE_DUAL_YEAR'), 'dual'],
+    [Deno.env.get('STRIPE_PRICE_TRIPLE_MONTH'), 'triple'], [Deno.env.get('STRIPE_PRICE_TRIPLE_YEAR'), 'triple'],
+  ]
+  const map: Record<string, Tier> = {}
+  for (const [id, tier] of pairs) if (id) map[id] = tier
+  return map
+}
+const PRICE_TIER = priceTierMap()
+
+// The tier a subscription currently bills for, from its first item's price id.
+function tierFromSubscription(sub: Stripe.Subscription): Tier | null {
+  const priceId = sub.items?.data?.[0]?.price?.id
+  return priceId ? (PRICE_TIER[priceId] ?? null) : null
+}
 
 // Stripe subscription.status -> our payment_status enum.
 function mapSubStatus(status: string): PaymentStatus {
@@ -92,10 +116,19 @@ Deno.serve(async (req) => {
       case 'customer.subscription.updated': {
         const sub = event.data.object as Stripe.Subscription
         const status = mapSubStatus(sub.status)
+        // product_tier is derived from the subscription's CURRENT PRICE (billing
+        // truth via the reverse-map) — NOT from metadata — so a tier upgrade
+        // (or any portal-driven price change) flips product_tier here. Only set
+        // it when the price maps to a known tier (otherwise leave it untouched).
+        // This is the sole authorized writer of product_tier (service-role).
+        const tier = tierFromSubscription(sub)
+        const patch: Record<string, unknown> = { payment_status: status }
+        if (tier) patch.product_tier = tier
         // Prefer the user_id we stamped into subscription metadata; fall back to
-        // matching the stored subscription id.
+        // matching the stored subscription id. (metadata.user_id only — tier
+        // comes from price.)
         const userId = sub.metadata?.user_id
-        const query = admin.from('profiles').update({ payment_status: status })
+        const query = admin.from('profiles').update(patch)
         if (userId) await query.eq('id', userId)
         else await query.eq('stripe_subscription_id', sub.id)
         break

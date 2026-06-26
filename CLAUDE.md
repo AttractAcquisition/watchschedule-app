@@ -70,8 +70,9 @@ The six docs own distinct domains. On conflict, precedence for **behaviour** is:
 
 These are load-bearing seams. The **names are exact** and identical across docs and the repo. If you change a seam, update **every** document in its row and regenerate `app/src/types/db.ts` if the schema changed.
 
-### The 7 Edge Functions (canonical directory names)
-`create-checkout-session`, `stripe-webhook`, `create-billing-portal-session`, `parse-crew-list`, `seed-fairness`, `generate-schedule`, `schedule-chat`.
+### The 8 Edge Functions (canonical directory names)
+`create-checkout-session`, `stripe-webhook`, `create-billing-portal-session`, `parse-crew-list`, `seed-fairness`, `generate-schedule`, `schedule-chat`, `upgrade-subscription`.
+- `upgrade-subscription` (B4) modifies the Stripe subscription to a higher tier's price; it **never** writes `product_tier` — the webhook does, derived from the new price. (Original 7 + this.)
 - `stripe-webhook` is the canonical name (not bare "webhook") and the **only** writer of `payment_status` / `product_tier`.
 - `seed-fairness` is the canonical directory; **`parse-past-schedule` is an alias for the same function** — do **not** create two.
 - Shared engine code lives in `supabase/functions/_shared/` (`fairness_constants.ts` + fairness engine + schedule engine + supabase admin client + cors), imported by both `generate-schedule` and `seed-fairness`. `fairness_constants.ts` is the single tuning point.

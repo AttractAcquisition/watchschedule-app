@@ -4,19 +4,37 @@
 // inside the AppShell.
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ExternalLink, Loader2, LogOut, RefreshCw } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { ArrowUpCircle, ExternalLink, Loader2, LogOut, RefreshCw } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
+import { queryClient } from '../../lib/queryClient'
 import { useAuth } from '../../auth/AuthGate'
 import { CrewManager } from './CrewManager'
 import WatchSettingsForm from './WatchSettingsForm'
+import { UpgradePlan } from './UpgradePlan'
+import { deptCountForTier, type Tier } from './watchSettings'
 
 export default function Settings() {
   const { profile, signOut } = useAuth()
   const navigate = useNavigate()
+  const vesselId = profile?.vessel_id ?? undefined
   const [savedSettings, setSavedSettings] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
   const [billingBusy, setBillingBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Reconciliation prompt (B4): after a tier upgrade, product_tier flips before
+  // the captain re-configures, so watch_settings.tier lags. Until they save the
+  // shared form below (which sets watch_settings.tier = product_tier and rebuilds
+  // lanes), we show a soft, NON-BLOCKING prompt. The old lane/schedule keeps
+  // working meanwhile — nothing here touches onboarding_complete or the gate.
+  const { data: ws } = useQuery({
+    queryKey: ['watch_settings_tier', vesselId],
+    enabled: !!vesselId,
+    queryFn: async () => (await supabase.from('watch_settings').select('tier').eq('vessel_id', vesselId!).maybeSingle()).data,
+  })
+  const tier = (profile?.product_tier ?? null) as Tier | null
+  const needsReconcile = !!tier && !!ws?.tier && ws.tier !== tier
 
   async function regenerate() {
     setRegenerating(true); setError(null)
@@ -52,11 +70,22 @@ export default function Settings() {
 
       <CrewManager />
 
+      {/* Reconciliation prompt (B4) — soft, non-blocking; appears after an upgrade
+          until the captain saves the now-required settings below. */}
+      {needsReconcile && tier && (
+        <div className="flex items-start gap-ws-2 rounded-ws-sm border border-ws-gold bg-ws-gold-ghost p-ws-4">
+          <ArrowUpCircle className="mt-ws-1 h-4 w-4 shrink-0 text-ws-gold" strokeWidth={1.5} aria-hidden />
+          <p className="text-ws-sm text-ws-text">
+            Your plan is now <span className="font-semibold text-ws-gold">{tier} watch</span>. Choose your {deptCountForTier(tier)} watch departments in <span className="text-ws-text">Watch configuration</span> below and save to finish the upgrade. Your current schedule keeps working until you do.
+          </p>
+        </div>
+      )}
+
       {/* Watch settings — the SAME component as onboarding Step 2 (Phase 5). */}
       <section className="rounded-ws-md border border-ws-line bg-ws-steel p-ws-5 shadow-ws-md">
         <p className="ws-eyebrow">— Watch settings</p>
         <h2 className="mt-ws-1 mb-ws-4 font-display text-ws-md font-semibold text-ws-offwhite">Watch configuration</h2>
-        <WatchSettingsForm submitLabel="Save settings" onSaved={() => setSavedSettings(true)} />
+        <WatchSettingsForm submitLabel="Save settings" onSaved={() => { setSavedSettings(true); queryClient.invalidateQueries({ queryKey: ['watch_settings_tier', vesselId] }) }} />
         {savedSettings && (
           <div className="mt-ws-4 flex flex-wrap items-center gap-ws-3 border-t border-ws-line pt-ws-4">
             <p className="text-ws-sm text-ws-text-muted">Settings saved. Regenerate to apply them to the schedule.</p>
@@ -84,6 +113,11 @@ export default function Settings() {
               <LogOut className="h-4 w-4" strokeWidth={1.5} aria-hidden /> Sign out
             </button>
           </div>
+        </div>
+
+        {/* Tier upgrade (B4 Part 2) */}
+        <div className="mt-ws-5 border-t border-ws-line pt-ws-5">
+          <UpgradePlan />
         </div>
       </section>
     </div>

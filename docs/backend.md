@@ -398,16 +398,16 @@ The only writer of gate columns. Server-to-server.
 - **Auth:** verify `Stripe-Signature` against `STRIPE_WEBHOOK_SECRET` (use the async constructor for Deno: `stripe.webhooks.constructEventAsync`). No JWT.
 - **Events handled (minimum):**
   - `checkout.session.completed` -> read `metadata.user_id` + `metadata.tier`; set profile `payment_status='active'`, `product_tier=<tier>`, store `stripe_customer_id`, `stripe_subscription_id`.
-  - `customer.subscription.updated` -> sync status (`active` / `past_due`).
+  - `customer.subscription.updated` -> sync `payment_status` (`active` / `past_due`) **and derive `product_tier` from the subscription's CURRENT price** (B4). A `{priceId -> tier}` reverse-map is built from the 6 `STRIPE_PRICE_*` secrets already in the Edge env (the mirror of `create-checkout-session`'s `PRICE_ENV`); the tier is taken from `sub.items.data[0].price.id`. **Price is billing truth** — this drives the tier-upgrade flow (§6.8) and also corrects `product_tier` for any portal-driven price change, and it never trusts a client/metadata tier claim. `product_tier` is only written when the price maps to a known tier (otherwise left untouched).
   - `customer.subscription.deleted` -> `payment_status='canceled'`.
-- **Writes:** via **service-role** client (bypasses RLS), updating `profiles`. Idempotent (ignore duplicate event IDs).
+- **Writes:** via **service-role** client (bypasses RLS), updating `profiles`. Idempotent (every handler is an UPDATE keyed by a stable id, re-deriving the same end state). **Sole authorized writer of `product_tier` / `payment_status`.**
 - **Response:** `200` quickly (Stripe retries on non-2xx).
-- **Note:** this flips the gate; the client is watching the profile row via Realtime and advances to onboarding.
+- **Note:** this flips the gate (signup) and the tier (upgrade); the client watches the profile row via Realtime and advances / unlocks accordingly.
 
 ### 6.3 `create-billing-portal-session`
 - **Auth:** user JWT.
 - **Request:** `{}` (customer derived from profile).
-- **Behaviour:** create a Stripe Billing Portal session for `stripe_customer_id`, `return_url = {APP_URL}/settings`.
+- **Behaviour:** create a Stripe Billing Portal session for `stripe_customer_id`, `return_url = {APP_URL}/settings`. Uses the account's **default portal configuration**, which B4 enabled for the full self-service set — **payment-method update, invoice history, subscription cancellation** (+ customer email/address/tax-id). No `configuration` is passed, so enabling features is pure Stripe config (no code change).
 - **Response:** `{ "url": "https://billing.stripe.com/..." }`
 
 ### 6.4 `parse-crew-list`
@@ -486,6 +486,18 @@ Claude-powered Q&A grounded in the vessel's current schedule + fairness data. An
 { "reply": "Alex is on Friday 18 Jul because he had the lowest cumulative Friday count (1) in the Deck lane and hadn't stood the previous weekend. ..." }
 ```
 - The Claude API key never leaves the function. The function answers strictly within the requesting vessel's data.
+
+### 6.8 `upgrade-subscription` (B4 — tier upgrade)
+Moves the caller's subscription UP to a higher tier's price. The client sends **only a target tier**; it never writes `product_tier`.
+- **Auth:** user JWT; re-derive `user_id` / vessel from the JWT (never trust client tier claims).
+- **Request:** `{ "target": "dual" | "triple" }`.
+- **Behaviour:**
+  1. Read `product_tier` + `stripe_subscription_id` from the **server** copy of the profile (service-role), never from the client.
+  2. **Strictly-higher guard:** reject if `target` is the same as or lower than the current tier (rank solo<dual<triple), or if there is no subscription on file.
+  3. Read the current subscription's billing **interval** (`month`/`year`) from its first item's price and map `(target, interval)` to the matching `STRIPE_PRICE_*` secret.
+  4. `stripe.subscriptions.update(subId, { items:[{ id, price: <newPrice> }], proration_behavior:'create_prorations', metadata:{ user_id, tier:target } })` — pay the difference immediately. `metadata.tier` is **reference only**; the webhook derives `product_tier` from the new **price**.
+- **Response:** `{ "ok": true, "target", "interval", "subscription_status" }`.
+- **Gate:** does **NOT** write `product_tier`. Stripe fires `customer.subscription.updated` → `stripe-webhook` (§6.2) flips `product_tier` from the price. The client watches the profile via Realtime until the tier flips, then prompts for any newly-required settings (the shared `WatchSettingsForm`), which rebuilds lanes and retires the old lane (`active=false`, never deleted; fairness history preserved). `onboarding_complete` and the gate are untouched — the old lane/schedule keeps working until the captain reconciles. **Scope: upgrades only;** downgrades are deferred (cancellation handled by the portal).
 
 ---
 

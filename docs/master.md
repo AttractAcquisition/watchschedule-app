@@ -25,7 +25,7 @@ These are the load-bearing seams between documents. They were cross-checked in v
 
 | Seam | Definition | Appears in |
 |---|---|---|
-| **Edge functions (7)** | `create-checkout-session`, `stripe-webhook`, `create-billing-portal-session`, `parse-crew-list`, `seed-fairness`, `generate-schedule`, `schedule-chat` | backend.md (contracts) = frontend.md (invokes) = master.md (phases) |
+| **Edge functions (8)** | `create-checkout-session`, `stripe-webhook`, `create-billing-portal-session`, `parse-crew-list`, `seed-fairness`, `generate-schedule`, `schedule-chat`, `upgrade-subscription` (B4 — tier upgrade; never writes `product_tier`, the webhook does from the price) | backend.md (contracts) = frontend.md (invokes) = master.md (phases) |
 | **`stripe-webhook`** | canonical function name (not bare "webhook"); the **only** writer of `payment_status` / `product_tier` | backend.md 6.2, frontend.md 6, master.md Phase 3 |
 | **`seed-fairness`** | canonical directory name; `parse-past-schedule` is an alias for the **same** function (do not create two) | backend.md 6.5, master.md Phase 8 |
 | **Fairness↔schedule call** | `selectCandidate(lane, date, dayType, isFriday, ledger, alreadyAssigned) -> { crew_id, reason_code, detail }` then `updateLedger(lane, crew_id, date, dayType, isFriday)` | fairness.md §4 & §11 = schedule.md §5 & §11 (identical 6-arg signature) |
