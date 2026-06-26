@@ -7,21 +7,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, Loader2, MessageSquare, Send, X } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
+import { ChatMarkdown } from './ChatMarkdown'
 
 interface Turn { role: 'user' | 'assistant'; content: string }
-
-// Render `cited` spans (assistant wraps schedule data in backticks) as mono/gold.
-function Cited({ text }: { text: string }) {
-  return (
-    <>
-      {text.split(/(`[^`]+`)/g).map((seg, i) =>
-        seg.startsWith('`') && seg.endsWith('`')
-          ? <span key={i} className="font-mono text-ws-gold">{seg.slice(1, -1)}</span>
-          : <span key={i}>{seg}</span>
-      )}
-    </>
-  )
-}
 
 export function ScheduleChat() {
   const [open, setOpen] = useState(false)
@@ -92,7 +80,7 @@ export function ScheduleChat() {
           ) : (
             <div key={i} className="flex items-start gap-ws-2">
               <Check className="mt-ws-1 h-4 w-4 shrink-0 text-ws-gold" strokeWidth={2} aria-hidden />
-              <div className="max-w-[85%] text-ws-sm leading-ws-normal text-ws-text"><Cited text={m.content} /></div>
+              <div className="max-w-[85%] text-ws-sm leading-ws-normal text-ws-text"><ChatMarkdown text={m.content} /></div>
             </div>
           )
         )}

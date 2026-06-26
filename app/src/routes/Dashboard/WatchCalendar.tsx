@@ -12,7 +12,7 @@ import {
   isToday, isWeekend, parseISO, startOfMonth, startOfWeek,
 } from 'date-fns'
 import { SegmentedControl } from '../../components/ui/SegmentedControl'
-import { initials } from './fairness'
+import { shortName } from './fairness'
 import type { DashboardData } from './useDashboardData'
 
 const fmt = (d: Date) => format(d, 'yyyy-MM-dd')
@@ -36,7 +36,8 @@ function Cell({ data, laneId, date, scheduled, compact }: { data: DashboardData;
   return (
     <div className={base} title={crew ? `${crew.full_name} · ${crew.position}` : isGap ? 'No eligible crew — gap' : ''}>
       {crew ? (
-        <span className="font-mono text-ws-sm font-medium text-ws-text">{initials(crew.full_name)}</span>
+        // Firstname.X (B2 item 3); long names truncate with ellipsis, full name in the title.
+        <span className={`block truncate font-mono font-medium text-ws-text ${compact ? 'text-ws-xs' : 'max-w-[6rem] text-ws-sm'}`}>{shortName(crew.full_name)}</span>
       ) : isGap ? (
         <span className="font-mono text-ws-xs text-ws-alert" aria-label="gap, no eligible crew">⚠</span>
       ) : (

@@ -31,3 +31,14 @@ export function initials(fullName: string): string {
   if (toks.length === 1) return toks[0].slice(0, 2).toUpperCase()
   return (toks[0][0] + toks[toks.length - 1][0]).toUpperCase()
 }
+
+// Calendar cell label (B2 item 3): first name + first letter of surname —
+// "Alexander Thomas" -> "Alexander.T". Single token -> just the name. The cell
+// truncates long results with ellipsis (CSS); the full name + position stays in
+// the hover title. Pure display formatting over crew_members.full_name.
+export function shortName(fullName: string): string {
+  const toks = fullName.trim().split(/\s+/).filter(Boolean)
+  if (toks.length === 0) return '—'
+  if (toks.length === 1) return toks[0]
+  return `${toks[0]}.${toks[toks.length - 1][0].toUpperCase()}`
+}

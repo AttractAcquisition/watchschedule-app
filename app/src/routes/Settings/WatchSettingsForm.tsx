@@ -21,8 +21,14 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
+import { queryClient } from '../../lib/queryClient'
 import { useAuth } from '../../auth/AuthGate'
+import { InfoTooltip } from '../../components/ui/InfoTooltip'
 import { DEPARTMENTS, type Department } from '../../lib/classifyDepartment'
+
+// Item 2 copy — fixed wording (additions-v2.md B2).
+const ANCHORS_HELP =
+  'Sets which crew member the rotation starts from on a brand-new schedule, before any watch history exists. Once schedules have been generated, fairness takes over automatically and this no longer applies. Most vessels can leave this at default.'
 import {
   DEPT_LABEL, deptCountForTier, deriveLanes, makeWatchSettingsSchema, reconcileLanes, todayISO,
   type ExistingLane, type LaneRef, type Tier, type WatchSettingsValues as FormValues,
@@ -45,6 +51,7 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [vesselName, setVesselName] = useState('')
 
   // Prefill from an existing row (covers /settings edit and onboarding resume).
   const { data: existing, isLoading } = useQuery({
@@ -56,6 +63,19 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
       return data
     },
   })
+
+  // Vessel name (item 1) — lives on the vessels table (owner-scoped RLS allows the
+  // client to read+write its own row; no migration). Seeds the field; persisted on save.
+  const { data: vesselRow } = useQuery({
+    queryKey: ['vessel_name', vesselId],
+    enabled: !!vesselId,
+    queryFn: async () => {
+      const { data, error } = await supabase.from('vessels').select('name').eq('id', vesselId!).maybeSingle()
+      if (error) throw error
+      return data
+    },
+  })
+  useEffect(() => { if (vesselRow?.name != null) setVesselName(vesselRow.name) }, [vesselRow])
 
   const schema = useMemo(() => makeWatchSettingsSchema(tier), [tier])
   const {
@@ -95,6 +115,12 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
     if (!vesselId) return setSaveError('Session not ready — please refresh.')
     setSaving(true); setSaveError(null); setSaved(false)
     try {
+      // 0) vessel name (item 1) — owner-scoped update; refresh the top-bar query.
+      const name = vesselName.trim()
+      const vn = await supabase.from('vessels').update({ name }).eq('id', vesselId)
+      if (vn.error) throw vn.error
+      await queryClient.invalidateQueries({ queryKey: ['vessel', vesselId] })
+
       // 1) watch_settings (one row per vessel; tier mirrors product_tier).
       const up = await supabase.from('watch_settings').upsert(
         {
@@ -162,6 +188,17 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
         <span className="rounded-ws-full border border-ws-gold px-ws-2 py-ws-1 font-mono text-ws-xs uppercase tracking-ws-wide text-ws-gold">
           {tier} watch
         </span>
+      </div>
+
+      {/* Vessel name (item 1) — shows in the top bar and feeds exports. */}
+      <div className="space-y-ws-2">
+        <label htmlFor="vessel_name" className="block text-ws-sm font-medium text-ws-text-muted">Vessel name</label>
+        <input
+          id="vessel_name" type="text" value={vesselName} onChange={(e) => { setVesselName(e.target.value); setSaved(false) }}
+          placeholder="M/Y Serenity" maxLength={120}
+          className="w-full rounded-ws-sm border border-ws-line bg-ws-steel-3 px-ws-3 py-ws-2 text-ws-text placeholder:text-ws-text-faint focus:border-ws-gold focus:outline-none"
+        />
+        <p className="font-mono text-ws-xs text-ws-text-faint">Displayed in the top bar; used on shared schedules.</p>
       </div>
 
       {/* Department selection (Dual/Triple only) */}
@@ -241,13 +278,16 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
 
       {/* Advanced: rotation anchors (optional) */}
       <div>
-        <button
-          type="button"
-          onClick={() => setShowAdvanced((s) => !s)}
-          className="text-ws-sm font-medium text-ws-gold hover:text-ws-gold-bright"
-        >
-          {showAdvanced ? 'Hide' : 'Show'} advanced rotation anchors
-        </button>
+        <div className="flex items-center gap-ws-2">
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((s) => !s)}
+            className="text-ws-sm font-medium text-ws-gold hover:text-ws-gold-bright"
+          >
+            {showAdvanced ? 'Hide' : 'Show'} advanced rotation anchors
+          </button>
+          <InfoTooltip text={ANCHORS_HELP} label="About rotation anchors" />
+        </div>
         {showAdvanced && (
           <div className="mt-ws-3 grid gap-ws-4 sm:grid-cols-2">
             <div className="space-y-ws-2">

@@ -5,11 +5,12 @@
 // regeneration — stated explicitly in the UI.
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2, Plus } from 'lucide-react'
+import { Camera, Loader2, Plus } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../auth/AuthGate'
 import { classifyDepartment, DEPARTMENTS, type Department } from '../../lib/classifyDepartment'
 import { CrewRow, type CrewMember, type CrewPatch } from './CrewRow'
+import { CrewUploadModal } from './CrewUploadModal'
 
 const DEPT_LABEL: Record<Department, string> = { deck: 'Deck', interior: 'Interior', engineering: 'Engineering', officer: 'Officer' }
 
@@ -35,6 +36,7 @@ export function CrewManager() {
   const [department, setDepartment] = useState<Department>('deck')
   const [deptTouched, setDeptTouched] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [uploadOpen, setUploadOpen] = useState(false)
 
   function onPosition(v: string) {
     setPosition(v)
@@ -69,8 +71,21 @@ export function CrewManager() {
           <p className="ws-eyebrow">— Crew</p>
           <h2 className="mt-ws-1 font-display text-ws-md font-semibold text-ws-offwhite">Crew management</h2>
         </div>
-        <span className="font-mono text-ws-xs text-ws-text-faint">{crew?.length ?? 0} crew</span>
+        <div className="flex items-center gap-ws-3">
+          <button
+            type="button"
+            onClick={() => setUploadOpen(true)}
+            className="flex items-center gap-ws-2 rounded-ws-sm border border-ws-line-strong px-ws-3 py-ws-2 text-ws-sm font-medium text-ws-text transition-all hover:border-ws-gold hover:bg-ws-steel-3"
+          >
+            <Camera className="h-4 w-4" strokeWidth={1.5} aria-hidden /> Upload / photo
+          </button>
+          <span className="font-mono text-ws-xs text-ws-text-faint">{crew?.length ?? 0} crew</span>
+        </div>
       </div>
+
+      {uploadOpen && vesselId && (
+        <CrewUploadModal vesselId={vesselId} onClose={() => setUploadOpen(false)} onAdded={invalidate} />
+      )}
       <p className="mt-ws-2 text-ws-sm text-ws-text-muted">Changes apply when you regenerate the schedule.</p>
 
       {/* add */}
