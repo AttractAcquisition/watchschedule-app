@@ -50,6 +50,13 @@ export default {
         'ws-fair-high': 'var(--ws-fair-high)',
         'ws-fair-mid': 'var(--ws-fair-mid)',
         'ws-fair-low': 'var(--ws-fair-low)',
+        // Print medium (B3) — light treatment for paper/PDF
+        'ws-print-bg': 'var(--ws-print-bg)',
+        'ws-print-ink': 'var(--ws-print-ink)',
+        'ws-print-muted': 'var(--ws-print-muted)',
+        'ws-print-line': 'var(--ws-print-line)',
+        'ws-print-weekend': 'var(--ws-print-weekend)',
+        'ws-print-gold': 'var(--ws-print-gold)',
       },
       fontFamily: {
         display: 'var(--ws-font-display)',

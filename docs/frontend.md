@@ -153,11 +153,21 @@ On confirm -> persist to `watch_settings`. Advance to Step 3.
 ### 4.5 `/dashboard` — The Product
 Top bar (`branding.md`), then two primary regions plus actions.
 
+> **Export matrix (additions A1 + B3).** Both product surfaces export read-only over already-displayed data — no recompute, no backend service, no secret:
+>
+> | Surface | WhatsApp / clipboard | PDF | Print |
+> |---|---|---|---|
+> | Schedule (calendar) | ✅ A1 | ✅ B3 | ✅ B3 |
+> | Fairness (per-crew balance) | ✅ B3 | ✅ B3 | ✅ B3 |
+>
+> PDF + Print both use the **browser print pipeline** (a print stylesheet + light-themed print documents portaled to `<body>`), not a document service or a new dependency: "Download PDF" prompts the browser's *Save as PDF*; "Print" goes to a printer. The print documents are authored **light and on-brand** from a dedicated `--ws-print-*` token palette (white paper, navy ink, gold accent) so paper gets a clean captain-ready sheet, never the dark screen UI. WhatsApp/clipboard stays the A1 copy-to-text pattern (no WhatsApp API).
+
 - **Fairness panel.** One **fairness score chip per crew member** (mono %, gauge bar coloured by the fairness scale). Grouping reflects the tier's fairness scope:
   - **Solo** -> single ungrouped list (one shared pool).
   - **Dual** -> grouped by the two selected department lanes.
   - **Triple** -> grouped by the three selected department lanes.
   - Clicking a member expands a breakdown (total watches, weekends, Fridays, last-on-watch, consecutive exposure) — the same data the chatbot uses. See `fairness.md`.
+  - **Export trio (B3):** the panel header carries **WhatsApp** (plain-text fairness summary — crew + score + key counts, grouped like the panel), **PDF**, and **Print**. Read-only over the displayed `fairness_ledger`.
 - **Watch calendar.** Calendar view of the generated schedule, **toggleable Week / Month** (segmented control).
   - Lanes depend on tier: Solo -> one lane; Dual -> two department lanes; Triple -> three department lanes.
   - Cells show the assigned crew member as **first name + surname initial** — `Alexander.T` (B2 item 3; mono, parsed from `crew_members.full_name`). Long names truncate with ellipsis inside the cell; the hover title still shows the **full name + position**.
@@ -168,6 +178,7 @@ Top bar (`branding.md`), then two primary regions plus actions.
   - **Regenerate schedule** — calls `generate-schedule` again, recomputing from current crew + settings + the **up-to-date persistent fairness ledger** (regeneration stays fair, never random). Confirm dialog if a schedule already exists ("Regenerate from today forward?"). Show generating state.
   - **Chatbot (Claude)** — docked panel/modal where the user asks natural-language questions about the schedule: *"Why is Alex on watch on Friday?"*, *"Who has the most weekends this month?"*, *"Is the rotation fair?"*. Calls **`schedule-chat`** (`backend.md`), which holds the schedule + fairness data as context and answers via Claude (key server-side only). Render per `branding.md`; cite schedule data in mono. **Assistant replies are rendered as markdown** (B2 item 4) — headings, lists, emphasis, and inline `code` (the cited dates/initials/scores, kept mono/gold) — via `react-markdown` (the only dependency added since the freeze). It builds a React element tree with **no raw-HTML passthrough** (no `rehype-raw`, no `dangerouslySetInnerHTML`) and the default url-transform strips dangerous link protocols, so there is **no HTML-injection / XSS path**.
   - **Copy for WhatsApp** (additions.md A1) — a one-tap action beside Regenerate that formats the **current** schedule into day-keyed plain text and writes it to the clipboard (with a success confirmation; falls back to a selectable text area if the clipboard API is blocked). Pure client-side presentation over the assignments + crew already read for the dashboard — no backend call, recomputes no fairness. Format: a header line (vessel + date range), then one line per scheduled day — Solo `Mon 6 — Tom`; Dual/Triple grouped with lane labels `Mon 6 — Deck: Tom | Interior: Luke`. Plain text only (no markdown/emoji).
+  - **Download PDF / Print** (B3) — schedule export actions on the calendar surface. Both render the **current** schedule (vessel name + date range + tier; one column per active lane; Friday gold-accented + bold, weekend rows sand-tinted; gap legend) through the light print document and the browser print pipeline. Read-only over the already-read assignments — recomputes nothing.
   - **Schedule history** (additions.md A2) — a read-only "History" action that opens a list of past **generated** schedules for the vessel (ordered by `generated_at`, most recent first, with a derived version index `v1, v2, …` and the current one marked). Each entry is openable read-only to view that version's assignments (the historical `watch_assignments` persist intact — regeneration flips `is_current=false`, never deletes). Reads via the existing SELECT-only vessel-scoped RLS — **no schema change, no new policy, no approval/lock lifecycle** (the audit confirmed none exists; schedules are generated, not approved). **No** editing, regenerate-from-history, or revert/restore.
 - **Edge states:** no schedule yet (shouldn't happen post-onboarding) -> invite generation. Crew changed since last generation -> gentle "Crew has changed — regenerate to update the schedule" banner.
 

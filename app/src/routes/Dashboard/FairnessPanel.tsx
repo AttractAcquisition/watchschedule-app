@@ -3,11 +3,12 @@
 // pool); Dual/Triple -> grouped by the selected department lanes. Fairness is
 // per lane, so a member's chip uses the ledger row for (lane, crew). Reads only.
 import { FairnessChip } from './FairnessChip'
+import { FairnessExportButtons } from './FairnessExportButtons'
 import type { DashboardData, Lane, LedgerRow } from './useDashboardData'
 
 const DEPT_LABEL: Record<string, string> = { deck: 'Deck', interior: 'Interior', engineering: 'Engineering', officer: 'Officer' }
 
-export function FairnessPanel({ data }: { data: DashboardData }) {
+export function FairnessPanel({ data, vesselName, onPrint }: { data: DashboardData; vesselName: string; onPrint: () => void }) {
   const { lanes, crew, ledger } = data
   const ledgerByKey = new Map<string, LedgerRow>(ledger.map((r) => [`${r.lane_id}:${r.crew_id}`, r]))
   const isSolo = lanes.length === 1 && lanes[0].kind === 'solo'
@@ -18,8 +19,13 @@ export function FairnessPanel({ data }: { data: DashboardData }) {
 
   return (
     <section className="rounded-ws-md border border-ws-line bg-ws-steel p-ws-5 shadow-ws-md">
-      <p className="ws-eyebrow">— Fairness</p>
-      <h2 className="mt-ws-1 font-display text-ws-md font-semibold text-ws-offwhite">Per-crew balance</h2>
+      <div className="flex flex-wrap items-start justify-between gap-ws-3">
+        <div>
+          <p className="ws-eyebrow">— Fairness</p>
+          <h2 className="mt-ws-1 font-display text-ws-md font-semibold text-ws-offwhite">Per-crew balance</h2>
+        </div>
+        <FairnessExportButtons data={data} vesselName={vesselName} onPrint={onPrint} />
+      </div>
 
       {lanes.length === 0 && (
         <p className="mt-ws-4 text-ws-sm text-ws-text-muted">No active watch lanes yet.</p>

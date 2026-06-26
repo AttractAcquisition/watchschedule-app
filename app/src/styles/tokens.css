@@ -101,6 +101,19 @@
   --ws-shadow-md: 0 4px 18px rgba(0,0,0,0.50);
   --ws-shadow-lg: 0 18px 50px rgba(0,0,0,0.60);
   --ws-glow-gold: 0 0 0 1px var(--ws-gold-ghost), 0 0 24px var(--ws-gold-glow); /* live elements only */
+
+  /* ============ PRINT MEDIUM (B3 export cluster) ============
+   * A light, on-brand treatment for paper / PDF. The screen UI stays dark
+   * (palette LOCKED above); these tokens apply ONLY to the print-export
+   * documents so a captain printing a schedule/fairness sheet gets clean,
+   * readable output on white — navy ink + gold accent, not the dark UI dumped
+   * to paper. Kept here so "tokens only" (master.md §2 invariant 7) still holds. */
+  --ws-print-bg:      #FFFFFF;  /* paper white */
+  --ws-print-ink:     #0B1420;  /* navy — primary print text */
+  --ws-print-muted:   #5C6678;  /* labels / captions on white */
+  --ws-print-line:    #C9CDD4;  /* hairline / table border on white */
+  --ws-print-weekend: #F1EEE7;  /* weekend cell tint (sand) on white */
+  --ws-print-gold:    #A8854F;  /* gold darkened for ink contrast on white */
 }
 
 /* Eyebrow / label style — recurring structural device (branding.md §3).

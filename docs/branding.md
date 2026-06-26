@@ -166,6 +166,19 @@ Used for section labels (FAIRNESS ENGINE, WATCH SCHEDULE, CREW LIST). Optionally
 
 **Elevation rule.** Raise elements by stepping the surface token (`steel -> steel-2`) plus a hairline border. Reserve `--ws-glow-gold` for genuinely live/active elements (active calendar week, generating state, primary CTA hover). No heavy drop shadows — they read as generic SaaS.
 
+### Print medium (export documents — B3)
+
+The screen UI is **dark-theme only** and the core palette above is LOCKED. **Print/PDF exports are the one exception:** paper needs a light, legible treatment, so a separate `--ws-print-*` palette (in `tokens.css`) renders the schedule/fairness export documents on white — **navy ink + gold accent**, not the dark UI dumped to paper. These tokens apply **only** to the `.ws-print-layer` print documents (shown via the print stylesheet); they never alter any on-screen surface.
+
+```css
+--ws-print-bg:      #FFFFFF;  /* paper white */
+--ws-print-ink:     #0B1420;  /* navy — primary print text */
+--ws-print-muted:   #5C6678;  /* labels / captions on white */
+--ws-print-line:    #C9CDD4;  /* hairline / table border on white */
+--ws-print-weekend: #F1EEE7;  /* weekend cell tint (sand) on white */
+--ws-print-gold:    #A8854F;  /* gold darkened for ink contrast on white */
+```
+
 ---
 
 ## 5. Core Components (specification — normative)

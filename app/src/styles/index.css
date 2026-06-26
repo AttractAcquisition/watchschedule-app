@@ -46,3 +46,21 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* ===== PRINT EXPORTS (B3 export cluster) =====
+ * The print layer (Schedule / Fairness export documents) is portaled to <body>
+ * as a sibling of #root. On screen it is hidden; when printing (or "Save as PDF")
+ * it becomes the ONLY thing on the page and the dark app is hidden — so paper
+ * gets the light, on-brand print document, never the dark UI. Authored entirely
+ * from the --ws-print-* tokens. */
+.ws-print-layer { display: none; }
+
+@media print {
+  /* force a white sheet regardless of the dark body background */
+  html, body { background: var(--ws-print-bg) !important; }
+  #root { display: none !important; }
+  .ws-print-layer { display: block !important; }
+  /* keep token colours when printing (browsers strip backgrounds by default) */
+  .ws-print-layer * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  @page { margin: 14mm; }
+}
