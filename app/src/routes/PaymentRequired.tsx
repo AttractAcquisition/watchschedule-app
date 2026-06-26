@@ -28,8 +28,8 @@ interface Plan {
 // (e.g. Solo €390, Dual €990, Triple €1990).
 const PLANS: Plan[] = [
   { tier: 'solo', name: 'Solo Watch', monthly: 39, blurb: 'One shared watch pool.', lanes: '1 lane · all eligible crew' },
-  { tier: 'dual', name: 'Dual Watch', monthly: 99, blurb: 'Two department rotations.', lanes: '2 lanes · pick 2 departments', popular: true },
-  { tier: 'triple', name: 'Triple Watch', monthly: 199, blurb: 'Three department rotations.', lanes: '3 lanes · pick 3 departments' },
+  { tier: 'dual', name: 'Dual Watch', monthly: 99, blurb: 'Up to two department rotations.', lanes: 'up to 2 lanes · pick 1–2 departments', popular: true },
+  { tier: 'triple', name: 'Triple Watch', monthly: 199, blurb: 'Up to three department rotations.', lanes: 'up to 3 lanes · pick 1–3 departments' },
 ]
 
 const euro = (n: number) => `€${n.toLocaleString('en-IE')}`

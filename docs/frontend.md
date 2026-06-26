@@ -127,9 +127,9 @@ One route, internal stepper, progress persisted to the backend so refresh resume
 Render the shared `WatchSettingsForm`. Available controls depend on `product_tier`:
 
 - **Solo Watch:** one watch lane. The watch pool is **every crew member toggled eligible, regardless of department** — there is no department selection. One person per day.
-- **Dual Watch:** two concurrent lanes per day. The captain **selects which two departments** are on watch, chosen from **{ Deck, Engineering, Officer, Interior }**. Each selected department is its own lane with its own rotation and its own fairness ledger.
-- **Triple Watch:** three concurrent lanes per day. The captain **selects which three departments** from the same set. Same per-lane rotation + per-lane fairness as Dual.
-- **Department combinations (B2 item 6):** the picker allows **every** valid combination of the four departments at the tier's nominal count — Dual = any 2 (deck+interior, engineering+interior, engineering+deck, …), Triple = any 3. `deriveLanes`/`reconcileLanes` are combination-agnostic; only the **count** is constrained (Zod + the DB CHECK). (Relaxing the count itself — e.g. Dual with 1 department — is engine-touching and reserved for a later, audit-gated phase, not B2.)
+- **Dual Watch:** up to two concurrent lanes per day. The captain **selects 1–2 departments** (B5 — floor of 1) on watch, chosen from **{ Deck, Engineering, Officer, Interior }**. Each selected department is its own lane with its own rotation and its own fairness ledger.
+- **Triple Watch:** up to three concurrent lanes per day. The captain **selects 1–3 departments** from the same set. Same per-lane rotation + per-lane fairness as Dual.
+- **Department count & combinations (B2 item 6 + B5):** the picker allows **every** valid combination of the four departments, at **1..N by tier (floor of 1)** — Dual = any 1 or 2; Triple = any 1, 2, or 3 (B5 relaxed the original exactly-N). `deriveLanes`/`reconcileLanes` are combination- **and** count-agnostic; the count rule (floor 1, max N) is enforced by the Zod schema + the DB CHECK, never the engine. Running fewer lanes than the tier max is fully supported — the engine loops active lanes and scores per-lane, unchanged.
 - **Vessel name (B2 item 1):** the form opens with an editable **vessel name** field, persisted to `vessels.name` (owner-scoped RLS; no migration). It is surfaced here **and** on `/settings` (one shared form), flows to the top bar, and feeds shared exports.
 
 **Universal settings (all tiers):**
@@ -169,7 +169,7 @@ Top bar (`branding.md`), then two primary regions plus actions.
   - Clicking a member expands a breakdown (total watches, weekends, Fridays, last-on-watch, consecutive exposure) — the same data the chatbot uses. See `fairness.md`.
   - **Export trio (B3):** the panel header carries **WhatsApp** (plain-text fairness summary — crew + score + key counts, grouped like the panel), **PDF**, and **Print**. Read-only over the displayed `fairness_ledger`.
 - **Watch calendar.** Calendar view of the generated schedule, **toggleable Week / Month** (segmented control).
-  - Lanes depend on tier: Solo -> one lane; Dual -> two department lanes; Triple -> three department lanes.
+  - Lanes depend on tier and selection: Solo -> one lane; Dual -> 1–2 department lanes; Triple -> 1–3 department lanes (B5: floor of 1).
   - Cells show the assigned crew member as **first name + surname initial** — `Alexander.T` (B2 item 3; mono, parsed from `crew_members.full_name`). Long names truncate with ellipsis inside the cell; the hover title still shows the **full name + position**.
   - **Friday cells** and **weekend cells** visually distinguished per `branding.md` (Friday = higher-weight marker; Sat/Sun = separate-rotation background).
   - Paused/charter periods (if applicable) rendered distinctly.
@@ -278,8 +278,8 @@ src/
 ## 8. Tier-Gating Rules (client-side UX, enforced server-side)
 | Capability | Solo | Dual | Triple |
 |---|---|---|---|
-| Watch lane(s) | 1 (all eligible crew, no dept) | 2 (captain-selected depts) | 3 (captain-selected depts) |
-| Department selection in settings | — | choose 2 of {Deck, Eng, Officer, Interior} | choose 3 of the same |
+| Watch lane(s) | 1 (all eligible crew, no dept) | up to 2 (captain-selected depts) | up to 3 (captain-selected depts) |
+| Department selection in settings | — | choose 1–2 of {Deck, Eng, Officer, Interior} (B5: floor 1) | choose 1–3 of the same (B5: floor 1) |
 | Per-lane / per-department fairness ledgers | single pool | per selected dept | per selected dept |
 | Past-schedule upload (fairness seeding) in Step 3 | — | yes | yes |
 | Fairness grouping on dashboard | single list | by lane | by department |

@@ -17,8 +17,8 @@ const RANK: Record<Tier, number> = { solo: 1, dual: 2, triple: 3 }
 // B1 pricing (monthly). Marketing site = source of truth.
 const TIERS: { tier: Tier; name: string; monthly: number; lanes: string }[] = [
   { tier: 'solo', name: 'Solo Watch', monthly: 39, lanes: '1 lane · all eligible crew' },
-  { tier: 'dual', name: 'Dual Watch', monthly: 99, lanes: '2 lanes · pick 2 departments' },
-  { tier: 'triple', name: 'Triple Watch', monthly: 199, lanes: '3 lanes · pick 3 departments' },
+  { tier: 'dual', name: 'Dual Watch', monthly: 99, lanes: 'up to 2 lanes · pick 1–2 departments' },
+  { tier: 'triple', name: 'Triple Watch', monthly: 199, lanes: 'up to 3 lanes · pick 1–3 departments' },
 ]
 const TIMEOUT_MS = 60_000
 const POLL_MS = 2_000

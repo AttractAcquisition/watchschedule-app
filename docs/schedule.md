@@ -36,9 +36,13 @@ Loaded server-side at the start of a run (re-derive `vessel_id` from the JWT —
 
 Lanes are the unit of generation and of fairness. Derive (and persist to `watch_lanes`) from tier + `selected_departments`:
 
+Lane count is **1..N by tier, floor of 1** (B5 — relaxed from exactly-N): one lane **per selected department**, and a tier may run fewer than its max.
+
 - **Solo** -> exactly **one** lane: `kind='solo'`, `department=null`, `label='Watch'`. Pool = all eligible crew regardless of department.
-- **Dual** -> exactly **two** lanes: `kind='dept'`, one per selected department. Pool of each = eligible crew in that department.
-- **Triple** -> exactly **three** lanes: `kind='dept'`, one per selected department.
+- **Dual** -> **one or two** lanes: `kind='dept'`, one per selected department (1 ≤ count ≤ 2). Pool of each = eligible crew in that department.
+- **Triple** -> **one to three** lanes: `kind='dept'`, one per selected department (1 ≤ count ≤ 3).
+
+The engine is **count-agnostic**: it loops the **active** lanes and scores each independently, so running fewer lanes than the tier max simply means fewer independent ledgers — the per-lane selection/scoring math is unchanged (the frozen fairness engine). Floor of 1 (Dual/Triple may not select 0) is enforced by the DB CHECK + the client Zod, not the engine.
 
 If lanes already exist for the vessel and settings are unchanged, reuse them (so the ledger keys stay stable). If `selected_departments` changed since last time, reconcile via the `watch_lanes.active` flag (never delete — that would cascade away fairness history): create genuinely new lanes (`active=true`); retire lanes no longer used by setting **`active=false`** (their `fairness_ledger`/`fairness_events` are retained); and if a previously-retired department is re-added, **re-activate its existing lane** (`active=true`) rather than inserting a duplicate, so the ledger key stays stable. **Changing tier/departments is a significant action**; on reconcile, surface to the captain that fairness for a newly added department starts fresh (no history) unless seeded.
 

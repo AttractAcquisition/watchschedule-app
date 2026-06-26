@@ -112,10 +112,10 @@ create index on crew_members(vessel_id);
 create table watch_settings (
   vessel_id            uuid primary key references vessels(id) on delete cascade,
   tier                 product_tier not null,         -- mirrors profiles.product_tier at config time
-  -- Lane configuration:
+  -- Lane configuration (B5 — "up to N, floor of 1"):
   --   solo  -> selected_departments is empty/ignored; pool = all eligible crew
-  --   dual  -> exactly 2 departments selected
-  --   triple-> exactly 3 departments selected
+  --   dual  -> 1 or 2 departments selected
+  --   triple-> 1, 2, or 3 departments selected
   selected_departments department[] not null default '{}',
   -- Horizon: how far ahead to generate, capped at 3 months.
   horizon_weeks        int not null default 4 check (horizon_weeks between 1 and 13),
@@ -126,10 +126,15 @@ create table watch_settings (
   weekend_rotation_anchor int default 0,               -- starting index for Sat-Sun
   created_at           timestamptz not null default now(),
   updated_at           timestamptz not null default now(),
+  -- B5 relaxed this from exactly-N to floor-1/max-N (migration
+  -- 20260626010000_dept_count_floor_one.sql — a NEW migration; the Phase-1 file
+  -- is unchanged). Pure relaxation: the old exact-N domain is a subset, so no
+  -- existing row is invalidated. Fewer lanes = fewer per-lane ledgers; the
+  -- fairness engine (which loops ACTIVE lanes, scores per-lane) is untouched.
   constraint dept_count_matches_tier check (
     (tier = 'solo'   and cardinality(selected_departments) = 0) or
-    (tier = 'dual'   and cardinality(selected_departments) = 2) or
-    (tier = 'triple' and cardinality(selected_departments) = 3)
+    (tier = 'dual'   and cardinality(selected_departments) between 1 and 2) or
+    (tier = 'triple' and cardinality(selected_departments) between 1 and 3)
   )
 );
 ```

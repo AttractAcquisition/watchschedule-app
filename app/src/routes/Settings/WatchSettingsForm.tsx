@@ -3,8 +3,9 @@
 // and the /settings page (Phase 11). Build once — there is no second form.
 //
 // Tier comes from product_tier (read-only, set at payment) and decides the
-// department controls: Solo = none (pool is all eligible crew); Dual = exactly 2;
-// Triple = exactly 3, from {deck, interior, engineering, officer}. Universal
+// department controls: Solo = none (pool is all eligible crew); Dual = 1–2;
+// Triple = 1–3 (B5: floor of 1, up to the tier max), from {deck, interior,
+// engineering, officer}. Universal
 // settings (all tiers): horizon (<=13 weeks), start date, include_weekends, and
 // the advanced rotation anchors. Zod enforces the dept-count-matches-tier rule
 // client-side; the Phase-1 DB CHECK enforces it again (defence in depth).
@@ -30,7 +31,7 @@ import { DEPARTMENTS, type Department } from '../../lib/classifyDepartment'
 const ANCHORS_HELP =
   'Sets which crew member the rotation starts from on a brand-new schedule, before any watch history exists. Once schedules have been generated, fairness takes over automatically and this no longer applies. Most vessels can leave this at default.'
 import {
-  DEPT_LABEL, deptCountForTier, deriveLanes, makeWatchSettingsSchema, reconcileLanes, todayISO,
+  DEPT_LABEL, deptMaxForTier, deriveLanes, makeWatchSettingsSchema, reconcileLanes, todayISO,
   type ExistingLane, type LaneRef, type Tier, type WatchSettingsValues as FormValues,
 } from './watchSettings'
 
@@ -45,7 +46,7 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
   const { profile } = useAuth()
   const tier = (profile?.product_tier ?? 'solo') as Tier
   const vesselId = profile?.vessel_id ?? undefined
-  const want = deptCountForTier(tier)
+  const max = deptMaxForTier(tier)
 
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -107,7 +108,7 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
   function toggleDept(d: Department) {
     const has = selected.includes(d)
     if (has) setValue('selected_departments', selected.filter((x) => x !== d), { shouldValidate: true })
-    else if (selected.length < want) setValue('selected_departments', [...selected, d], { shouldValidate: true })
+    else if (selected.length < max) setValue('selected_departments', [...selected, d], { shouldValidate: true })
     setSaved(false)
   }
 
@@ -209,12 +210,12 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
       ) : (
         <div>
           <label className="block text-ws-sm font-medium text-ws-text-muted">
-            Watch departments — choose exactly {want}
+            Watch departments — choose 1–{max}
           </label>
           <div className="mt-ws-3 grid grid-cols-2 gap-ws-3 sm:grid-cols-4">
             {DEPARTMENTS.map((d) => {
               const on = selected.includes(d)
-              const full = !on && selected.length >= want
+              const full = !on && selected.length >= max
               return (
                 <button
                   key={d}
@@ -236,7 +237,7 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
               )
             })}
           </div>
-          <p className="mt-ws-2 font-mono text-ws-xs text-ws-text-faint">{selected.length}/{want} selected</p>
+          <p className="mt-ws-2 font-mono text-ws-xs text-ws-text-faint">{selected.length}/{max} selected (min 1)</p>
           {errors.selected_departments && (
             <p role="alert" className="mt-ws-2 text-ws-sm text-ws-alert">{errors.selected_departments.message}</p>
           )}

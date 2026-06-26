@@ -12,7 +12,7 @@ import { useAuth } from '../../auth/AuthGate'
 import { CrewManager } from './CrewManager'
 import WatchSettingsForm from './WatchSettingsForm'
 import { UpgradePlan } from './UpgradePlan'
-import { deptCountForTier, type Tier } from './watchSettings'
+import { deptMaxForTier, type Tier } from './watchSettings'
 
 export default function Settings() {
   const { profile, signOut } = useAuth()
@@ -76,7 +76,7 @@ export default function Settings() {
         <div className="flex items-start gap-ws-2 rounded-ws-sm border border-ws-gold bg-ws-gold-ghost p-ws-4">
           <ArrowUpCircle className="mt-ws-1 h-4 w-4 shrink-0 text-ws-gold" strokeWidth={1.5} aria-hidden />
           <p className="text-ws-sm text-ws-text">
-            Your plan is now <span className="font-semibold text-ws-gold">{tier} watch</span>. Choose your {deptCountForTier(tier)} watch departments in <span className="text-ws-text">Watch configuration</span> below and save to finish the upgrade. Your current schedule keeps working until you do.
+            Your plan is now <span className="font-semibold text-ws-gold">{tier} watch</span>. Choose 1–{deptMaxForTier(tier)} watch departments in <span className="text-ws-text">Watch configuration</span> below and save to finish the upgrade. Your current schedule keeps working until you do.
           </p>
         </div>
       )}

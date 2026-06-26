@@ -12,7 +12,10 @@ export const DEPT_LABEL: Record<Department, string> = {
   deck: 'Deck', interior: 'Interior', engineering: 'Engineering', officer: 'Officer',
 }
 
-export const deptCountForTier = (tier: Tier): number => (tier === 'dual' ? 2 : tier === 'triple' ? 3 : 0)
+// MAX departments a tier may select (B5: "up to N, floor 1"). Solo = 0 (the pool
+// is all eligible crew); Dual = up to 2; Triple = up to 3. The floor (>= 1 for
+// Dual/Triple) is enforced in the Zod schema + the DB CHECK, not here.
+export const deptMaxForTier = (tier: Tier): number => (tier === 'dual' ? 2 : tier === 'triple' ? 3 : 0)
 
 export const todayISO = () => new Date().toISOString().slice(0, 10)
 
@@ -25,9 +28,10 @@ export interface WatchSettingsValues {
   weekend_rotation_anchor: number
 }
 
-// Tier-aware schema. The dept-count rule is load-bearing and matches the DB CHECK.
+// Tier-aware schema. The dept-count rule is load-bearing and mirrors the DB CHECK
+// (B5): Solo = exactly 0; Dual/Triple = floor of 1, up to the tier max.
 export function makeWatchSettingsSchema(tier: Tier) {
-  const want = deptCountForTier(tier)
+  const max = deptMaxForTier(tier)
   return z
     .object({
       selected_departments: z.array(z.enum(DEPARTMENTS as [Department, ...Department[]])),
@@ -42,14 +46,16 @@ export function makeWatchSettingsSchema(tier: Tier) {
       if (new Set(depts).size !== depts.length) {
         ctx.addIssue({ code: 'custom', path: ['selected_departments'], message: 'No duplicate departments.' })
       }
-      if (depts.length !== want) {
+      if (tier === 'solo') {
+        if (depts.length !== 0) {
+          ctx.addIssue({ code: 'custom', path: ['selected_departments'], message: 'Solo Watch uses every eligible crew member — no department selection.' })
+        }
+      } else if (depts.length < 1 || depts.length > max) {
+        // floor of 1, up to the tier max (B5 — was exactly-N).
         ctx.addIssue({
           code: 'custom',
           path: ['selected_departments'],
-          message:
-            tier === 'solo'
-              ? 'Solo Watch uses every eligible crew member — no department selection.'
-              : `Select exactly ${want} department${want > 1 ? 's' : ''} for ${tier === 'dual' ? 'Dual' : 'Triple'} Watch.`,
+          message: `Choose 1–${max} department${max > 1 ? 's' : ''} for ${tier === 'dual' ? 'Dual' : 'Triple'} Watch.`,
         })
       }
     })

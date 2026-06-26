@@ -212,6 +212,8 @@ Make "Manage billing" a full self-service surface (edit payment method, view pas
 
 ## PHASE B5 — Tier Flexibility ("up to N" departments, floor = 1) — ENGINE-TOUCHING, AUDIT-GATED
 
+> **STATUS: DONE.** Audit confirmed the count is enforced in exactly three places (DB CHECK, Zod, `deptCountForTier`) and that the fairness **scoring boundary is not crossed** — the engine loops ACTIVE lanes and scores per-lane, so fewer lanes = fewer independent ledgers, no scoring change. Shipped: new migration `20260626010000_dept_count_floor_one.sql` relaxing the CHECK to floor-1/max-N (the Phase-1 file untouched); Zod range rule; `deptCountForTier` → `deptMaxForTier`; copy in 5 spots. **Frozen-engine regression proven** — the fairness.md §9 worked example reproduces its exact numbers (Tuesday 7.0/5.5/6.0→B; Friday 11.0/7.5/10.0→B) and the engine files are byte-unchanged. This **intentionally reverses** the Phase-1 exact-N rule.
+
 ### Objective
 Allow a vessel to run **fewer** department lanes than its tier's nominal count: a Dual vessel may select 1 or 2 departments; a Triple may select 1, 2, or 3. **Floor: at least one department** (a multi-lane tier must run at least one watch lane). This **reverses** the Phase-1 `dept_count_matches_tier` CHECK (which enforced exactly 2 for Dual, exactly 3 for Triple) — intentional.
 
