@@ -54,6 +54,7 @@ create type day_type as enum ('weekday', 'weekend');           -- Mon-Fri vs Sat
 create type onboarding_step as enum ('crew', 'settings', 'generate', 'complete');
 create type ineligibility_reason as enum ('leave', 'sick', 'training', 'role_exempt', 'other');
 create type weekend_structure as enum ('per_day', 'sat_sun_block', 'fri_sat_sun_block'); -- B6: weekend coverage shape
+create type charter_status as enum ('booked', 'cancelled'); -- B7: only 'booked' pauses generation
 ```
 
 ### 2.2 Tables
@@ -265,6 +266,21 @@ create table chat_messages (
   created_at    timestamptz not null default now()
 );
 create index on chat_messages(vessel_id, created_at);
+
+-- charter_periods (B7) — captain-entered pause windows. CONFIGURATION INPUT
+-- (client-RW, like crew_members), consumed by generation. Only 'booked' charters
+-- pause the rotation; 'cancelled' is retained for history but ignored by generation.
+create table charter_periods (
+  id          uuid primary key default gen_random_uuid(),
+  vessel_id   uuid not null references vessels(id) on delete cascade,
+  start_date  date not null,
+  end_date    date not null,
+  label       text,
+  status      charter_status not null default 'booked',
+  created_at  timestamptz not null default now(),
+  constraint charter_dates_ordered check (end_date >= start_date)
+);
+create index on charter_periods(vessel_id);
 ```
 
 ### 2.3 `updated_at` trigger
@@ -316,13 +332,20 @@ create trigger trg_block_gate before update on profiles
 ```
 > The `stripe-webhook` uses the **service-role** client, which bypasses RLS and the trigger guard (service-role connections set `auth.uid()` to null / use a privileged role), so it can write gate columns. Verify the trigger's `when` clause excludes service-role writes in implementation.
 
-**Vessel-scoped tables** (crew_members, watch_settings, watch_lanes, schedules, watch_assignments, fairness_ledger, fairness_events, storage_uploads, chat_messages) — same shape:
+**Vessel-scoped tables** (crew_members, watch_settings, watch_lanes, **charter_periods**, schedules, watch_assignments, fairness_ledger, fairness_events, storage_uploads, chat_messages) — same shape:
 ```sql
 alter table crew_members enable row level security;
 create policy "crew_rw_own_vessel" on crew_members
   for all using (vessel_id = current_vessel_id())
   with check (vessel_id = current_vessel_id());
 -- repeat the identical policy for each vessel-scoped table
+
+-- charter_periods (B7) is CLIENT-RW config input (the captain books/cancels
+-- charters) — same client-RW policy as crew_members, NOT SELECT-only:
+alter table charter_periods enable row level security;
+create policy "charter_rw_own_vessel" on charter_periods
+  for all using (vessel_id = current_vessel_id())
+  with check (vessel_id = current_vessel_id());
 ```
 
 **Server-written tables** (schedules, watch_assignments, fairness_ledger, fairness_events): the client gets **SELECT** only; INSERT/UPDATE/DELETE are performed by Edge Functions using service-role. Implement as: client policy `for select using (vessel_id = current_vessel_id())`, and **no** client insert/update/delete policy (so only service-role can write).
@@ -465,7 +488,7 @@ Runs the scheduling engine (`schedule.md`) using the persistent fairness ledger 
   2. Build each lane's eligible pool:
      - Solo -> all `crew_members` with `eligible=true`.
      - Dual/Triple -> `crew_members` with `eligible=true` AND `department` in that lane's department.
-  3. For each lane, generate assignments date-by-date across the horizon, treating **Mon–Fri** and **Sat–Sun** as **separate rotations**, applying Friday's higher weight and the **"no Monday watch for someone who stood the preceding weekend"** exclusion, selecting the lowest-cumulative fair candidate (full rules in `schedule.md`/`fairness.md`).
+  3. For each lane, generate assignments date-by-date across the horizon, treating **Mon–Fri** and **Sat–Sun** as **separate rotations**, applying Friday's higher weight and the **"no Monday watch for someone who stood the preceding weekend"** exclusion, selecting the lowest-cumulative fair candidate (full rules in `schedule.md`/`fairness.md`). Honour `watch_settings.weekend_structure` (B6 blocks) and **skip dates inside any `booked` `charter_periods` window** (B7 — paused: no assignment/ledger/event, rotation resumes correctly afterward from the unchanged ledger).
   4. Insert a `schedules` row (+ flip previous `is_current`), insert `watch_assignments`, **increment `fairness_ledger`**, and append `fairness_events` capturing the reason for each pick.
   5. Set `profiles.onboarding_complete=true` and `onboarding_step='complete'` if not already (first generation completes onboarding).
 - **Writes:** service-role (schedules, assignments, ledger, events, profile flag).

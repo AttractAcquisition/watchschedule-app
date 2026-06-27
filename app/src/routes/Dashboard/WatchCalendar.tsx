@@ -17,25 +17,36 @@ import type { DashboardData } from './useDashboardData'
 
 const fmt = (d: Date) => format(d, 'yyyy-MM-dd')
 
+// B7 — the booked charter (if any) covering this date. "Paused" is distinct from a
+// no_eligible_crew gap. Resume = the day after end_date.
+function charterFor(data: DashboardData, dateStr: string) {
+  return data.charters.find((c) => dateStr >= c.start_date && dateStr <= c.end_date) ?? null
+}
+
 function Cell({ data, laneId, date, scheduled, compact }: { data: DashboardData; laneId: string; date: Date; scheduled: Set<string>; compact?: boolean }) {
-  const key = `${laneId}:${fmt(date)}`
+  const ds = fmt(date)
+  const charter = charterFor(data, ds)
+  const key = `${laneId}:${ds}`
   const a = data.assignments.find((x) => `${x.lane_id}:${x.watch_date}` === key)
   const crew = a ? data.crewById.get(a.crew_id) : undefined
-  const isGap = !a && scheduled.has(fmt(date)) // scheduled date, no assignment -> no_eligible_crew gap
+  const isGap = !charter && !a && scheduled.has(ds) // scheduled date, no assignment -> no_eligible_crew gap
   const friday = isFriday(date)
   const weekend = isWeekend(date)
 
   const base = [
     compact ? 'min-h-[1.5rem] px-ws-1 py-ws-1 text-center' : 'min-h-[2.75rem] px-ws-2 py-ws-2',
     'border border-ws-line-faint',
-    weekend ? 'bg-ws-navy' : a ? 'bg-ws-steel-2' : 'bg-ws-steel-inset',
-    friday ? 'border-l-2 border-l-ws-gold-dim' : '',
+    charter ? 'bg-ws-steel-inset' : weekend ? 'bg-ws-navy' : a ? 'bg-ws-steel-2' : 'bg-ws-steel-inset',
+    friday && !charter ? 'border-l-2 border-l-ws-gold-dim' : '',
     isToday(date) ? 'border-t-2 border-t-ws-gold' : '',
   ].join(' ')
 
+  const resumes = charter ? format(addDays(parseISO(charter.end_date), 1), 'd MMM') : ''
   return (
-    <div className={base} title={crew ? `${crew.full_name} · ${crew.position}` : isGap ? 'No eligible crew — gap' : ''}>
-      {crew ? (
+    <div className={base} title={charter ? `${charter.label ? charter.label + ' — ' : ''}Charter · resumes ${resumes}` : crew ? `${crew.full_name} · ${crew.position}` : isGap ? 'No eligible crew — gap' : ''}>
+      {charter ? (
+        <span className="block truncate font-mono text-ws-xs italic text-ws-text-muted" aria-label={`paused, charter resumes ${resumes}`}>{compact ? '⏸' : 'Paused'}</span>
+      ) : crew ? (
         // Firstname.X (B2 item 3); long names truncate with ellipsis, full name in the title.
         <span className={`block truncate font-mono font-medium text-ws-text ${compact ? 'text-ws-xs' : 'max-w-[6rem] text-ws-sm'}`}>{shortName(crew.full_name)}</span>
       ) : isGap ? (
@@ -180,6 +191,7 @@ function Legend() {
       <span className="flex items-center gap-ws-2"><span className="inline-block h-3 w-3 rounded-ws-sm border-l-2 border-l-ws-gold-dim bg-ws-steel-2" /> Friday (weighted)</span>
       <span className="flex items-center gap-ws-2"><span className="inline-block h-3 w-3 rounded-ws-sm bg-ws-navy" /> Weekend (separate rotation)</span>
       <span className="flex items-center gap-ws-2"><span className="font-mono text-ws-alert">⚠</span> Gap — no eligible crew</span>
+      <span className="flex items-center gap-ws-2"><span className="font-mono italic text-ws-text-muted">Paused</span> Charter (rotation resumes after)</span>
     </div>
   )
 }

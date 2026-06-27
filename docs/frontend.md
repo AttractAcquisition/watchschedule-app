@@ -173,7 +173,7 @@ Top bar (`branding.md`), then two primary regions plus actions.
   - Lanes depend on tier and selection: Solo -> one lane; Dual -> 1–2 department lanes; Triple -> 1–3 department lanes (B5: floor of 1).
   - Cells show the assigned crew member as **first name + surname initial** — `Alexander.T` (B2 item 3; mono, parsed from `crew_members.full_name`). Long names truncate with ellipsis inside the cell; the hover title still shows the **full name + position**.
   - **Friday cells** and **weekend cells** visually distinguished per `branding.md` (Friday = higher-weight marker; Sat/Sun = separate-rotation background).
-  - Paused/charter periods (if applicable) rendered distinctly.
+  - **Charter (paused) dates** (B7) render a distinct **"Paused"** cell (title: *"Charter · resumes {end+1}"*) sourced from booked `charter_periods` — visually separate from a `no_eligible_crew` gap (`⚠`). Legend includes a Paused entry.
   - Week view: 7-day detailed grid. Month view: compact, active week highlighted.
 - **Actions:**
   - **Regenerate schedule** — calls `generate-schedule` again, recomputing from current crew + settings + the **up-to-date persistent fairness ledger** (regeneration stays fair, never random). Confirm dialog if a schedule already exists ("Regenerate from today forward?"). Show generating state.
@@ -184,7 +184,7 @@ Top bar (`branding.md`), then two primary regions plus actions.
 - **Edge states:** no schedule yet (shouldn't happen post-onboarding) -> invite generation. Crew changed since last generation -> gentle "Crew has changed — regenerate to update the schedule" banner.
 
 ### 4.6 `/settings` — Crew & Watch Management
-The captain's control surface. Three sections:
+The captain's control surface. Sections:
 
 - **Crew management (CRUD):**
   - List all crew (name, position, department, eligibility).
@@ -196,6 +196,7 @@ The captain's control surface. Three sections:
   - **Upload / photo (B2 item 5):** an "Upload / photo" action opens a modal that re-mounts the **same proven crew-OCR flow** as onboarding Step 1 — upload an image **or take a photo** (`capture`), the existing **`parse-crew-list`** Edge Function (Claude OCR) returns candidates, an **editable review table** lets the captain correct rows, and confirm **appends** them to the vessel's `crew_members` (RLS-scoped). No new backend, no new function — a second mount of an existing capability.
 - **Watch settings:** the **same shared `WatchSettingsForm`** from onboarding Step 2 — the editable **vessel name** (B2 item 1) + tier-specific lanes/department selection + generation horizon + start date. Editing does not auto-regenerate; offer a "Save & regenerate" affordance, otherwise the captain regenerates from the dashboard.
   - **Upgrade reconciliation prompt (B4):** if `product_tier` (gate truth) is ahead of `watch_settings.tier` — i.e. the captain has upgraded but not yet re-configured — a **soft, non-blocking** banner appears above this section ("Your plan is now *dual* — choose your 2 watch departments below and save to finish the upgrade; your current schedule keeps working until you do"). It is **not** a gate: `onboarding_complete` is untouched, the old lane/schedule keeps working, and saving the form rebuilds the new-tier lanes and retires the old one (`active=false`, never deleted). The banner clears when `watch_settings.tier` catches up.
+- **Charters (B7 — Charter Mode):** a `CharterManager` section to **add / cancel / restore / delete** charter periods (`charter_periods`, **client-RW vessel-scoped** — captain config). A booked charter **pauses** the rotation for its date range; the schedule resumes from the correct crew afterward (fairness preserved — no burden accrues while paused). **Soft-cancel** (`status='cancelled'`) keeps history but doesn't affect generation. Changes apply on the next regeneration; booked charters show on the dashboard calendar as **Paused**.
 - **Subscription / account:** current tier, **"Manage billing"** → **`create-billing-portal-session`** (the full Stripe portal — payment-method update, invoice history, cancellation, enabled in B4), and **"Upgrade plan"** (B4) → tier comparison at the B1 prices (€39 / €99 / €199) → confirm → **`upgrade-subscription`** (sends only the target tier; never writes `product_tier`) → watch the profile via **Realtime + poll + calm timeout** (the PaymentProcessing pattern, on `product_tier`) until the webhook flips the tier → the reconciliation prompt above takes over. Upgrades only (Solo→Dual→Triple); a proration-charge failure surfaces as `past_due` on the same wait surface. Sign out also here.
 
 ---

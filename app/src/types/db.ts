@@ -14,6 +14,44 @@ export type Database = {
   }
   public: {
     Tables: {
+      charter_periods: {
+        Row: {
+          created_at: string
+          end_date: string
+          id: string
+          label: string | null
+          start_date: string
+          status: Database["public"]["Enums"]["charter_status"]
+          vessel_id: string
+        }
+        Insert: {
+          created_at?: string
+          end_date: string
+          id?: string
+          label?: string | null
+          start_date: string
+          status?: Database["public"]["Enums"]["charter_status"]
+          vessel_id: string
+        }
+        Update: {
+          created_at?: string
+          end_date?: string
+          id?: string
+          label?: string | null
+          start_date?: string
+          status?: Database["public"]["Enums"]["charter_status"]
+          vessel_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "charter_periods_vessel_id_fkey"
+            columns: ["vessel_id"]
+            isOneToOne: false
+            referencedRelation: "vessels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       chat_messages: {
         Row: {
           content: string
@@ -572,6 +610,7 @@ export type Database = {
       current_vessel_id: { Args: never; Returns: string }
     }
     Enums: {
+      charter_status: "booked" | "cancelled"
       day_type: "weekday" | "weekend"
       department: "deck" | "interior" | "engineering" | "officer"
       ineligibility_reason:
@@ -712,6 +751,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      charter_status: ["booked", "cancelled"],
       day_type: ["weekday", "weekend"],
       department: ["deck", "interior", "engineering", "officer"],
       ineligibility_reason: [

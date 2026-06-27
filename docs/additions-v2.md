@@ -285,6 +285,8 @@ Make the weekend watch *structure* configurable per vessel: (a) **one person per
 
 ## PHASE B7 — Charter Mode — ENGINE-TOUCHING, AUDIT-GATED (flagship, largest)
 
+> **STATUS: DONE — second wave (B0–B7) complete.** Audit confirmed NO freeze conflict: a charter is a **pure structural skip**, and resume-from-correct-crew **emerges** from the unchanged ledger (zero burden accrues while paused; the scoring isn't even called). Shipped: `charter_status` enum + **client-RW** `charter_periods` table (migration `20260627010000`); `schedule_engine` skips booked-charter dates (folded into `isScheduled`, so B6 weekend-blocks honour charters too); `generate-schedule` loads booked charters; a `CharterManager` Settings section (add/cancel/restore/delete) + a calendar **"Paused · resumes {date}"** state. **Frozen-engine regression proven** (fairness.md §9 reproduces exactly; `fairness_engine` + `fairness_constants` byte-unchanged). Marquee proof: a fresh run from the pre-charter ledger reproduces the post-charter assignments **and** final ledger byte-identically. Live (deployed): RLS client-RW (cross-vessel write 403 / read empty), booked charter skips its range (`is_current` stays single), soft-cancel is inert; B6 block cut by a charter degrades to a partial block.
+
 ### Objective
 Deliver the marketing site's flagship promise: **Charter Mode** — pause the watch rotation when a charter begins, freeze it for the charter period, and **resume from the correct crew member** afterward so rotation continuity and fairness are preserved. (The site features this prominently: a "How It Works" pillar, a dedicated section, the hero mockup "Charter · Paused · Resumes Monday," and every tier's feature list.)
 

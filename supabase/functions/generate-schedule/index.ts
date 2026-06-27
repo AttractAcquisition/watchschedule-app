@@ -89,6 +89,12 @@ Deno.serve(async (req) => {
     const keptPast = priorAssignments.filter((a) => a.watch_date < fromDate)
     const baseLedgers = replayLedgers(activeLaneIds, keptPast, seed)
 
+    // B7 — booked charter windows pause the rotation within their range (cancelled
+    // charters are retained for history but do NOT affect generation).
+    const { data: charterRows } = await admin
+      .from('charter_periods').select('start_date,end_date').eq('vessel_id', vesselId).eq('status', 'booked')
+    const charters = (charterRows ?? []).map((c) => ({ start: c.start_date, end: c.end_date }))
+
     const plan = planSchedule({
       startDate: fromDate,
       settings: {
@@ -101,6 +107,7 @@ Deno.serve(async (req) => {
       crew,
       lanes: activeLanes as LaneRow[],
       baseLedgers,
+      charters,
     })
 
     // --- persist (service-role) ---

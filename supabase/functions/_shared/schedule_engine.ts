@@ -79,12 +79,19 @@ function rotationFlat(led: Ledger, pool: string[], dayType: DayType): boolean {
   return pool.every((id) => (led[id]?.[field] ?? 0) === 0)
 }
 
+// B7 — a charter window pauses the rotation. Inclusive [start, end] date range.
+export interface CharterRange {
+  start: string // 'YYYY-MM-DD'
+  end: string
+}
+
 export interface PlanInput {
   startDate: string
   settings: ScheduleSettings
   crew: Crew[]
   lanes: LaneRow[] // active + retired; only active are scheduled
   baseLedgers: Record<string, Ledger> // seeded / replayed-past base, per lane
+  charters?: CharterRange[] // B7 — booked charter windows to skip (default none)
 }
 
 // The generation loop (schedule.md §5). Chronological ascending — load-bearing
@@ -116,7 +123,16 @@ export function planSchedule(input: PlanInput): GenPlan {
   // per_day reduces to a single-day block == the original loop exactly (regression).
   const structure: WeekendStructure = input.settings.weekend_structure ?? 'per_day'
   const dayTypeOf = (d: string): DayType => (isoWeekday(d) >= 6 ? 'weekend' : 'weekday')
-  const isScheduled = (d: string) => d >= start && d <= end && !(dayTypeOf(d) === 'weekend' && !input.settings.include_weekends)
+  // B7 — charter pause: a date inside any booked charter window is skipped entirely.
+  // No selection, no assignment, no updateLedger -> NO burden accrues, so the
+  // unchanged fairness selector resumes from the correct next-due crew after the
+  // charter (resume-from-correct-crew EMERGES from the untouched ledger). Folding
+  // it into isScheduled also makes B6 weekend-blocks exclude charter days (a charter
+  // cutting a block leaves the non-charter side as B6's partial-block path).
+  const charters = input.charters ?? []
+  const inCharter = (d: string) => charters.some((c) => d >= c.start && d <= c.end)
+  const isScheduled = (d: string) =>
+    d >= start && d <= end && !(dayTypeOf(d) === 'weekend' && !input.settings.include_weekends) && !inCharter(d)
   // Days covered by the lead at `date` (only in-range, scheduled days):
   //   fri_sat_sun_block: Friday leads {Fri,Sat,Sun} (Friday-spread driven)
   //   sat_sun_block:     Saturday leads {Sat,Sun}
@@ -139,6 +155,7 @@ export function planSchedule(input: PlanInput): GenPlan {
   for (let date = start; date <= end; date = addDays(date, 1)) {
     const leadType = dayTypeOf(date)
     if (leadType === 'weekend' && !input.settings.include_weekends) continue
+    if (inCharter(date)) continue // B7 — paused: pure skip (no select/assign/ledger/event/gap)
     const leadIsFriday = isoWeekday(date) === 5
 
     for (const lane of activeLanes) {

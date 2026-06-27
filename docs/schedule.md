@@ -77,6 +77,16 @@ A block is decided by **one selection at its first chronological day** (the *lea
 
 **Counting is PER COVERED DAY:** `updateLedger` is called once per day in the block with that day's own day-type/Friday flag, so `weekend_watches`/`friday_watches` keep meaning "days stood" — identical to `per_day`, to the live ledger, and to `seed-fairness`. This is the decisive reason for per-day counting (no unit seam across modes/seeding). Consequently the **scoring weights/formula are unchanged** (the frozen `fairness_engine` + `fairness_constants`); block modes are an orchestration change in `schedule_engine` only. The block-taker's Friday still counts and is weighted `W_FRIDAY`, and standing the weekend block sets `last_weekend_date` to the block's Sunday → the **Monday-after-weekend exclusion still fires**. Block modes are only meaningful when `include_weekends = true`; with weekends off, the in-range days collapse (a block degrades to its scheduled days only — never crashes). Storage stays **one `watch_assignments` row per (lane, date)**, so regeneration replay and seeding remain per-day automatically.
 
+### 4.2 Charter Mode (B7 — `charter_periods`)
+
+A **charter period** is a date range during which the watch rotation is **paused**. Generation reads the vessel's **booked** charters (`charter_periods` where `status='booked'`; `cancelled` is retained for history but ignored) and **skips every date inside any charter window** — generalising the existing weekend skip from one weekday-class to an arbitrary range. A skipped date gets **no selection, no assignment, no `updateLedger`, no event, and no gap** (a "Paused" charter is distinct from a `no_eligible_crew` gap; the scoring is not even called).
+
+**Resume-from-correct-crew is emergent, not coded:** because a paused date accrues **zero burden**, the per-lane ledger entering the first post-charter day is byte-identical to the ledger leaving the last pre-charter day, so the unchanged fairness selector resumes from the correct next-due crew automatically. (Proven: a fresh run starting at the resume date *from the pre-charter ledger* reproduces the post-charter assignments and final ledger exactly.) `fairness_engine` + `fairness_constants` are **byte-unchanged**; this is a `schedule_engine` orchestration change only — the charter skip folds into `isScheduled`, so **B6 weekend-blocks also honour charters** (a charter cutting a block leaves the non-charter side as B6's partial-block path).
+
+- **Horizon** stays a calendar window (`fromDate + horizon_weeks*7`); a charter inside it consumes calendar days that simply receive no watches — the horizon is **not** auto-extended (raise `horizon_weeks` for more post-charter coverage).
+- **`is_current`** unchanged: regeneration still yields exactly one current schedule; charters only change which dates within it get watches.
+- **Regeneration** reads booked charters and skips them; regenerating from a date inside a charter starts with skipped days until `end_date`. Overlapping/adjacent charters are handled by union (`inCharter(date)` = date ∈ any booked charter).
+
 ---
 
 ## 5. Generation Algorithm

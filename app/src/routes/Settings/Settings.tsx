@@ -10,6 +10,7 @@ import { supabase } from '../../lib/supabase'
 import { queryClient } from '../../lib/queryClient'
 import { useAuth } from '../../auth/AuthGate'
 import { CrewManager } from './CrewManager'
+import { CharterManager } from './CharterManager'
 import WatchSettingsForm from './WatchSettingsForm'
 import { UpgradePlan } from './UpgradePlan'
 import { deptMaxForTier, type Tier } from './watchSettings'
@@ -95,6 +96,9 @@ export default function Settings() {
           </div>
         )}
       </section>
+
+      {/* Charter mode (B7) */}
+      <CharterManager />
 
       {/* Subscription / account */}
       <section className="rounded-ws-md border border-ws-line bg-ws-steel p-ws-5 shadow-ws-md">
