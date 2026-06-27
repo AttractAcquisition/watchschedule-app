@@ -155,6 +155,8 @@ function eligiblePool(lane, crew):
 
 Ineligible crew (the "not eligible for watch" toggle from `/settings`) are excluded here — they remain in the crew list but never enter a pool. This is the mechanism by which leave/sickness/training exclusions take effect at the next generation/regeneration.
 
+> **C2 — availability filter & opportunity counting.** On each scheduled date, a pool member is a candidate only if `available_from <= date` (Step-A; a not-yet-joined crew is never scheduled before arrival, and this guarantees their opportunity denominator ≥ 1). Independently, the engine counts one **opportunity** of that date's rotation for **every available crew in the pool** (not just the one assigned) — via a single `bumpOpportunities` helper used identically by the current run, by `replayLedgers` (each prior assignment date), and by `seed-fairness` (each seeded date). This consistent counting across seed + replay + run is what keeps the denominator equal for equal-availability crew (so fairness degrades to the pre-C2 behaviour) and correct for a mid-season joiner (`fairness.md` §4/§5/§9). Block/charter dates that aren't scheduled (B6/B7) contribute no opportunity, exactly as they contribute no watch.
+
 ---
 
 ## 7. Regeneration

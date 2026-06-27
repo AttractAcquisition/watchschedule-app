@@ -5,6 +5,8 @@
 
 **Determinism requirement.** Given the same crew, settings, and ledger state, the engine MUST produce the same schedule every time. No randomness. All ties are broken by explicit, ordered rules (section 7). This is what makes the rota defensible to crew and explainable by the chatbot.
 
+> **⚠️ C2 AMENDMENT (2026-06-27 — the one deliberate, approved change to the frozen scoring).** Burden is now a **RATE: watches ÷ opportunities the crew member was AVAILABLE for** (using `crew_members.available_from`, C1), not an absolute lifetime count. This fixes a confirmed bug: the absolute-count model relentlessly dumped watches on a mid-season joiner until their *count* caught longer-serving crew. **Weights/constants are UNCHANGED** (`fairness_constants.ts` byte-identical); the rate divides the existing count-based cost/burden. **Graceful degradation is proven:** with EQUAL availability every crew shares the same opportunity denominator, the divisor cancels, and the schedule + 0–100 scores are **byte-identical** to the pre-C2 engine — so existing same-roster vessels are unaffected. The amendment touches `burden`/`selectionCost`/`computeFairnessScore` + a Step-A availability filter + opportunity counting across seed/replay/run. See the new §9 worked examples (the post-amendment baseline).
+
 ---
 
 ## 1. Core Principles (the rules, in plain language)
@@ -67,6 +69,8 @@ burden = (weekday_watches - friday_watches) * W_WEEKDAY     # non-Friday weekday
 
 Note Friday is counted once, at the Friday weight (not double-counted as weekday + Friday). `weekday_watches` includes Fridays in the count, so we subtract `friday_watches` from the weekday term and add them back at the Friday weight.
 
+> **C2:** this count-based `burden` is retained as the numerator; the fairness measure is now `burden ÷ opportunities` (see §5). The weights above are unchanged — they multiply inside `burden`, and the rate divides the result.
+
 The consecutive penalty is applied at **selection time** (section 4), not stored in `burden`, because it reflects the *candidate's current run* at the moment of a decision rather than lifetime history.
 
 ---
@@ -83,6 +87,7 @@ For a given **lane**, on a given **date**, the engine must choose who stands tha
 Start from the lane's pool:
 - Solo lane -> all crew with `eligible = true`.
 - Dept lane -> all crew with `eligible = true` AND `department = lane.department`.
+- **C2 availability filter:** AND `available_from <= date` — a crew member is not a candidate before they joined (and this guarantees their opportunity denominator is ≥ 1, so the rate is well-defined; no divide-by-zero).
 
 Then remove anyone failing a **hard constraint** for this date:
 1. **Weekend-to-Monday exclusion.** If the date is a **Monday**, exclude any candidate whose `last_weekend_date` is the immediately preceding Saturday or Sunday (i.e. they stood the weekend that just ended). 
@@ -130,6 +135,8 @@ cost = weekend_watches * W_WEEKEND
 
 Key point: **weekday decisions look at weekday/Friday counts; weekend decisions look at weekend counts.** That separation is the mechanism behind "Mon–Fri and Sat–Sun are their own schedules." Friday gets an *extra* selection penalty (`W_FRIDAY_SELECT`) so the same person doesn't keep drawing Friday even if their overall weekday count looks balanced.
 
+> **C2 amendment — the cost is a RATE.** The ENTIRE count-based cost above is divided by the candidate's opportunities for that rotation (weekday cost ÷ `weekday_opportunities`, weekend cost ÷ `weekend_opportunities`). The **whole** cost is divided (not just the volume terms) so that with EQUAL availability the common divisor cancels and the ranking is byte-identical to pre-C2 (graceful degradation — verified: dividing only volume would flip picks via `consec`/`recency`). An opportunity = a scheduled watch-date of that rotation in the lane on/after the crew's `available_from`; it is counted for **every available crew on every scheduled date** (not just the one assigned), across seed + replay + the current run, so the denominator stays equal for equal-availability crew. Effect: a mid-season joiner reaches the lane's *rate* after ~their fair share of their own window, instead of being dumped on until their *count* catches longer-serving crew.
+
 ### Step C — Pick the lowest cost, break ties deterministically
 Choose the candidate with the lowest `cost`. Resolve ties via the ordered tiebreakers in section 7.
 
@@ -160,6 +167,8 @@ spread       = max(stddev(burden over lane), epsilon)   # avoid divide-by-zero o
 z            = deviation / spread
 fairness_score(member) = clamp( 100 - (abs(z) * K), 0, 100 )      # K defaults to 25
 ```
+
+> **C2 amendment — score over the burden RATE.** `burden` above is replaced by a rate measure: `(burden ÷ opportunities_total) × meanOpp_lane`, where `opportunities_total = weekday_opportunities + weekend_opportunities` and `meanOpp_lane` is the lane's average opportunity count. The **relative structure** is the rate (so the score reflects watches-per-availability — a later joiner who has done their share reads ~100, same as a long-tenured peer); multiplying by `meanOpp_lane` restores **count magnitude** so the `EPSILON` spread-floor (a constant, unchanged) calibrates exactly as before. With EQUAL availability `opportunities_total == meanOpp_lane`, so the measure reduces **exactly** to the count `burden` and the 0–100 score is byte-identical to pre-C2. A member with **no opportunities yet** (`opportunities_total = 0`, e.g. just added) is shown **100 / not-owed** and excluded from the lane's spread (no re-introduced dumping).
 
 - `K` is a scaling constant (default 25) so that being one standard deviation from the mean costs ~25 points. Tune centrally.
 - **Interpretation for the UI** (drives the gauge colour from `branding.md`):
@@ -217,28 +226,32 @@ Never silently violate a rule — always record it. The value of the product is 
 
 ---
 
-## 9. Worked Example (illustrative, Solo lane)
+## 9. Worked Example (the post-C2 baseline — regression canary)
 
-Crew (all eligible): A, B, C. Ledger (weekday/friday/weekend) seeded as:
-- A: weekday 6, friday 2, weekend 3
-- B: weekday 5, friday 1, weekend 2
-- C: weekday 5, friday 2, weekend 4
+C2 changed the math deliberately, so this is the NEW baseline. It has two halves: (a) proves the change **degrades** to the old behaviour when availability is equal; (b) proves it **fixes** the join-timing bug.
 
-**Deciding a normal Tuesday** (weekday, not Friday): cost ~ base weekday burden.
-- A burden = (6-2)*1.0 + 2*1.5 = 4 + 3 = 7.0
-- B burden = (5-1)*1.0 + 1*1.5 = 4 + 1.5 = 5.5
-- C burden = (5-2)*1.0 + 2*1.5 = 3 + 3 = 6.0
-Lowest = B -> **B stands Tuesday.** Ledger updates B weekday->6, fairness recomputed.
+### 9(a) No turnover (EQUAL availability) — reproduces the pre-C2 numbers exactly
+Crew A, B, C, all available from the lane's start, so each has the same opportunity denominators. Ledger (weekday/friday/weekend): A(6,2,3), B(5,1,2), C(5,2,4).
 
-**Deciding the Friday that week** (Friday selection penalty `W_FRIDAY_SELECT=2.0` on existing friday_watches):
-- A friday_term = 2*2.0 = 4.0 (plus weekday burden) -> high
-- B friday_term = 1*2.0 = 2.0
-- C friday_term = 2*2.0 = 4.0
-B has the fewest Fridays -> **B is favoured for Friday**, actively spreading Friday away from A and C. (If B just stood several weekdays, the consecutive penalty and recency nudge may rebalance — the engine weighs all terms.)
+- **Tuesday** (weekday): count cost A `(6-2)·1.0 + 2·1.5 = 7.0`, B `5.5`, C `6.0`. The rate divides each by the common `weekday_opportunities` → ranking unchanged → **B stands** (exactly as pre-C2).
+- **Friday** (with `W_FRIDAY_SELECT=2.0`): count cost A `11.0`, B `7.5`, C `10.0` → ÷ common opp → **B** (exactly as pre-C2).
+- **Score:** with equal opportunities the rate measure reduces to the count burden, so the 0–100 scores are byte-identical to pre-C2 (e.g. B ≈ 65). ✅ **degradation: same schedule, same scores.**
 
-**Deciding the following Monday:** suppose C stood the preceding Sunday. Then C is **excluded** from Monday by the hard constraint (`monday_exclusion_applied`); the choice is between A and B on weekday burden.
+### 9(b) Mixed availability (turnover) — the fix
+Weekend rotation. A & C aboard long (**30** available weekends each, stood **10**); B joined recently (**3** available weekends) and has stood their share (**1**):
 
-This is the behaviour the chatbot narrates back to the captain.
+| | A | B (recent joiner) | C |
+|---|---|---|---|
+| stood / available weekends | 10 / 30 | **1 / 3** | 10 / 30 |
+| weekend **rate** (`watches·W_WEEKEND ÷ opp`) | 0.433 | **0.433** | 0.433 |
+| **C2** fairness score | **100** | **100** | **100** |
+| **C2** next-weekend selection cost | 0.433 | **0.433 (tie — not preferred)** | 0.433 |
+| pre-C2 (count) burden | 13.0 | **1.3** | 13.0 |
+| pre-C2 score / next pick | 82 | **64, and dumped ~10×** | 82 |
+
+**B, with 1 watch, reads 100 alongside A's 10** — both stood their fair share of the time they were available — and B is **not** preferentially assigned. A 0/3 joiner is picked for ~their fair share of their own window then balances (verified: ≤ ~4 of the next 8 weekends, versus the pre-C2 engine dumping ~8). This is the behaviour the chatbot narrates from honest numbers ("stood 1 of 3 available weekends").
+
+**Following Monday:** unchanged — a crew member who stood the preceding weekend is still hard-excluded from Monday (`monday_exclusion_applied`); rate-fairness applies to the remaining candidates.
 
 ---
 

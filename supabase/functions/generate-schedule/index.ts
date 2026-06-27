@@ -53,7 +53,7 @@ Deno.serve(async (req) => {
     }
     const activeLaneIds = activeLanes.map((l: LaneRow) => l.id)
 
-    const { data: crewRows } = await admin.from('crew_members').select('id,department,eligible').eq('vessel_id', vesselId)
+    const { data: crewRows } = await admin.from('crew_members').select('id,department,eligible,available_from').eq('vessel_id', vesselId)
     const crew = (crewRows ?? []) as Crew[]
 
     // prior current schedule + its assignments (for is_current flip + replay)
@@ -72,7 +72,7 @@ Deno.serve(async (req) => {
     // (schedule.md §7.1). Empty/zero when unseeded -> identical to Phase-7 behaviour.
     const { data: seedRows } = await admin
       .from('fairness_ledger')
-      .select('lane_id,crew_id,seed_total_watches,seed_weekday_watches,seed_weekend_watches,seed_friday_watches,seed_last_watch_date,seed_last_weekend_date,seed_consecutive_run')
+      .select('lane_id,crew_id,seed_total_watches,seed_weekday_watches,seed_weekend_watches,seed_friday_watches,seed_last_watch_date,seed_last_weekend_date,seed_consecutive_run,seed_weekday_opportunities,seed_weekend_opportunities,seed_friday_opportunities')
       .eq('vessel_id', vesselId)
     const seed: Record<string, Ledger> = {}
     for (const r of seedRows ?? []) {
@@ -80,14 +80,27 @@ Deno.serve(async (req) => {
         crew_id: r.crew_id, total_watches: r.seed_total_watches, weekday_watches: r.seed_weekday_watches,
         weekend_watches: r.seed_weekend_watches, friday_watches: r.seed_friday_watches,
         last_watch_date: r.seed_last_watch_date, last_weekend_date: r.seed_last_weekend_date, consecutive_run: r.seed_consecutive_run,
+        // C2 — seeded opportunity base for the rate denominator (0 for unseeded vessels).
+        weekday_opportunities: r.seed_weekday_opportunities, weekend_opportunities: r.seed_weekend_opportunities, friday_opportunities: r.seed_friday_opportunities,
       }
       ;(seed[r.lane_id] ??= {})[r.crew_id] = entry
+    }
+
+    // C2 — pools + available_from so replay tallies OPPORTUNITIES for the replayed
+    // history consistently with the run (same bumpOpportunities). poolByLane mirrors
+    // schedule_engine.eligiblePool (eligible crew in the lane).
+    const availMap = new Map(crew.map((c) => [c.id, c.available_from]))
+    const poolByLane = new Map<string, string[]>()
+    for (const l of activeLanes as LaneRow[]) {
+      const base = crew.filter((c) => c.eligible)
+      const inLane = l.kind === 'solo' ? base : base.filter((c) => c.department === l.department)
+      poolByLane.set(l.id, inLane.map((c) => c.id).sort())
     }
 
     // base = SEED + replay(already-stood assignments < fromDate). Avoids double-
     // counting the replaced forward portion on regenerate.
     const keptPast = priorAssignments.filter((a) => a.watch_date < fromDate)
-    const baseLedgers = replayLedgers(activeLaneIds, keptPast, seed)
+    const baseLedgers = replayLedgers(activeLaneIds, keptPast, seed, poolByLane, availMap)
 
     // B7 — booked charter windows pause the rotation within their range (cancelled
     // charters are retained for history but do NOT affect generation).
@@ -136,6 +149,8 @@ Deno.serve(async (req) => {
           vessel_id: vesselId, lane_id: laneId, crew_id: e.crew_id,
           total_watches: e.total_watches, weekday_watches: e.weekday_watches, weekend_watches: e.weekend_watches, friday_watches: e.friday_watches,
           last_watch_date: e.last_watch_date, last_weekend_date: e.last_weekend_date, consecutive_run: e.consecutive_run,
+          // C2 — persist opportunity denominators (one source of truth for the rate + honest chatbot "X of Y").
+          weekday_opportunities: e.weekday_opportunities, weekend_opportunities: e.weekend_opportunities, friday_opportunities: e.friday_opportunities,
           fairness_score: scoreMap.get(laneId)?.get(e.crew_id) ?? null, updated_at: new Date().toISOString(),
         })
       }

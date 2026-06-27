@@ -99,8 +99,8 @@ Deno.serve(async (req) => {
     const activeLanes = (lanes ?? []).filter((l) => l.active)
     const laneByDept = new Map<string, string>() // department -> lane_id
     for (const l of activeLanes) if (l.department) laneByDept.set(l.department, l.id)
-    const { data: crewRows } = await admin.from('crew_members').select('id,full_name,department,eligible').eq('vessel_id', vesselId)
-    const crew = (crewRows ?? []) as { id: string; full_name: string; department: string; eligible: boolean }[]
+    const { data: crewRows } = await admin.from('crew_members').select('id,full_name,department,eligible,available_from').eq('vessel_id', vesselId)
+    const crew = (crewRows ?? []) as { id: string; full_name: string; department: string; eligible: boolean; available_from: string }[]
 
     // --- aggregate per (lane, crew) ---
     type Agg = { total: number; weekday: number; weekend: number; friday: number; dates: Set<string>; lastWeekend: string | null }
@@ -121,6 +121,26 @@ Deno.serve(async (req) => {
       const a = laneMap.get(crewId)!
       a.total++; if (dayType === 'weekend') { a.weekend++; if (!a.lastWeekend || rec.date > a.lastWeekend) a.lastWeekend = rec.date } else { a.weekday++; if (isFriday) a.friday++ }
       a.dates.add(rec.date)
+    }
+
+    // C2 — per-lane OPPORTUNITY dates (distinct dates a watch was needed in the lane,
+    // by rotation) from the extracted history. Each crew's opportunity denominator =
+    // the lane's dates of that rotation on/after their available_from — consistent
+    // with the run/replay bumpOpportunities ("an opportunity available for").
+    const laneOppDates = new Map<string, { weekday: Set<string>; weekend: Set<string>; friday: Set<string> }>()
+    for (const rec of records) {
+      const crewId = matchCrew(rec.crew_name, crew); if (!crewId) continue
+      const member = crew.find((c) => c.id === crewId)!; const laneId = laneByDept.get(member.department); if (!laneId) continue
+      const wd = isoWeekday(rec.date); const weekend = wd >= 6; const friday = wd === 5
+      if (!laneOppDates.has(laneId)) laneOppDates.set(laneId, { weekday: new Set(), weekend: new Set(), friday: new Set() })
+      const s = laneOppDates.get(laneId)!
+      if (weekend) s.weekend.add(rec.date); else { s.weekday.add(rec.date); if (friday) s.friday.add(rec.date) }
+    }
+    const oppFor = (laneId: string, availFrom: string): { wd: number; wk: number; fri: number } => {
+      const s = laneOppDates.get(laneId)
+      if (!s) return { wd: 0, wk: 0, fri: 0 }
+      const c = (set: Set<string>) => [...set].filter((d) => d >= availFrom).length
+      return { wd: c(s.weekday), wk: c(s.weekend), fri: c(s.friday) }
     }
 
     // consecutive_run (best-effort trailing run) + last_watch_date
@@ -144,10 +164,11 @@ Deno.serve(async (req) => {
       const pool = crew.filter((c) => c.eligible && c.department === lane.department)
       // entries for scoring: every pool member (seeded -> counts, else zero)
       const entries: LedgerEntry[] = pool.map((c) => {
+        const o = oppFor(lane.id, c.available_from)
         const a = laneMap.get(c.id)
-        if (!a) return zeroEntry(c.id)
+        if (!a) return { ...zeroEntry(c.id), weekday_opportunities: o.wd, weekend_opportunities: o.wk, friday_opportunities: o.fri }
         const { last } = trailingRun(a.dates)
-        return { crew_id: c.id, total_watches: a.total, weekday_watches: a.weekday, weekend_watches: a.weekend, friday_watches: a.friday, last_watch_date: last, last_weekend_date: a.lastWeekend, consecutive_run: trailingRun(a.dates).run }
+        return { crew_id: c.id, total_watches: a.total, weekday_watches: a.weekday, weekend_watches: a.weekend, friday_watches: a.friday, last_watch_date: last, last_weekend_date: a.lastWeekend, consecutive_run: trailingRun(a.dates).run, weekday_opportunities: o.wd, weekend_opportunities: o.wk, friday_opportunities: o.fri }
       })
       const scores = new Map(computeFairnessScore(entries).map((s) => [s.crew_id, s.score]))
       const members: { crew_id: string; total_watches: number; weekend_watches: number; friday_watches: number; fairness_score: number }[] = []
@@ -164,6 +185,9 @@ Deno.serve(async (req) => {
           // immutable seed base
           seed_total_watches: a.total, seed_weekday_watches: a.weekday, seed_weekend_watches: a.weekend, seed_friday_watches: a.friday,
           seed_last_watch_date: last, seed_last_weekend_date: a.lastWeekend, seed_consecutive_run: run,
+          // C2 — opportunity denominators (live == seed pre-generation), per rotation.
+          weekday_opportunities: oppFor(lane.id, c.available_from).wd, weekend_opportunities: oppFor(lane.id, c.available_from).wk, friday_opportunities: oppFor(lane.id, c.available_from).fri,
+          seed_weekday_opportunities: oppFor(lane.id, c.available_from).wd, seed_weekend_opportunities: oppFor(lane.id, c.available_from).wk, seed_friday_opportunities: oppFor(lane.id, c.available_from).fri,
           fairness_score: score, updated_at: nowISO,
         })
         members.push({ crew_id: c.id, total_watches: a.total, weekend_watches: a.weekend, friday_watches: a.friday, fairness_score: score as number })

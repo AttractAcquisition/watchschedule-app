@@ -24,6 +24,13 @@ export interface LedgerEntry {
   last_watch_date: string | null // 'YYYY-MM-DD'
   last_weekend_date: string | null
   consecutive_run: number
+  // C2 — opportunity denominators: watch-slots of each rotation this crew member was
+  // AVAILABLE for (since available_from), across seed + replay + current run. Burden
+  // and selection cost are now RATES (count ÷ opportunities). Counted for every
+  // available crew on every scheduled date (not just the assigned one).
+  weekday_opportunities: number
+  weekend_opportunities: number
+  friday_opportunities: number
 }
 
 // A lane carries its candidate pool (the eligible, department-filtered, ACTIVE-lane
@@ -74,6 +81,7 @@ export function zeroEntry(crew_id: string): LedgerEntry {
   return {
     crew_id, total_watches: 0, weekday_watches: 0, weekend_watches: 0, friday_watches: 0,
     last_watch_date: null, last_weekend_date: null, consecutive_run: 0,
+    weekday_opportunities: 0, weekend_opportunities: 0, friday_opportunities: 0,
   }
 }
 const entryOf = (ledger: Ledger, id: string): LedgerEntry => ledger[id] ?? zeroEntry(id)
@@ -90,15 +98,26 @@ export function burden(e: LedgerEntry): number {
 // Selection cost for THIS decision (fairness.md §4 Step B). Day-type dependent so
 // the two rotations stay independent: weekday decisions read weekday/Friday counts;
 // weekend decisions read weekend counts only.
+//
+// C2 (approved freeze amendment): the cost is now a RATE — the ENTIRE count-based
+// cost divided by the crew member's opportunities for that rotation. The whole cost
+// (incl. consec/recency) is divided by the common opp so that with EQUAL availability
+// the divisor cancels and the ranking is byte-identical to the pre-C2 engine
+// (graceful degradation). Weights/constants are unchanged — they multiply inside the
+// count-based cost; the rate divides the result. Candidates always have opp ≥ 1
+// (Step-A availability filter in schedule.md); the opp ≤ 0 guard returns Infinity
+// (never preferred — no dumping, no NaN), NOT a max(opp,1) hack.
 export function selectionCost(e: LedgerEntry, date: string, dayType: DayType, isFriday: boolean): number {
   const consec = e.consecutive_run * W_CONSEC
   const recency = e.last_watch_date !== null && e.last_watch_date === addDays(date, -1) ? RECENCY_NUDGE : 0
   if (dayType === 'weekend') {
-    return e.weekend_watches * W_WEEKEND + consec + recency
+    const costOld = e.weekend_watches * W_WEEKEND + consec + recency
+    return e.weekend_opportunities > 0 ? costOld / e.weekend_opportunities : Infinity
   }
   const baseWeekday = (e.weekday_watches - e.friday_watches) * W_WEEKDAY + e.friday_watches * W_FRIDAY
   const fridayTerm = isFriday ? e.friday_watches * W_FRIDAY_SELECT : 0
-  return baseWeekday + fridayTerm + consec + recency
+  const costOld = baseWeekday + fridayTerm + consec + recency
+  return e.weekday_opportunities > 0 ? costOld / e.weekday_opportunities : Infinity
 }
 
 // ---- tie-breaking (fairness.md §7) -----------------------------------------
@@ -255,14 +274,39 @@ export function scoreBand(score: number): ScoreBand {
 }
 
 // Per-lane: relative to lane peers. A lone member is trivially 100.
+// C2: the score is the z-score of the burden RATE (burden ÷ opportunities-available-for),
+// not the absolute burden. With EQUAL availability all crew share the same opp_total D,
+// so rate = burden/D and the constant D cancels in the z-score → score byte-IDENTICAL
+// to the pre-C2 engine (graceful degradation). A crew with NO opportunities yet
+// (opp_total = 0) is "not owed anything" → shown 100 and excluded from the lane's
+// spread so it doesn't drag the distribution (no re-introduced dumping).
 export function computeFairnessScore(entries: LedgerEntry[]): FairnessScore[] {
   if (entries.length === 0) return []
-  const burdens = entries.map(burden)
+  const oppTotal = (e: LedgerEntry) => e.weekday_opportunities + e.weekend_opportunities
+  const rated = entries.filter((e) => oppTotal(e) > 0)
+  if (rated.length === 0) {
+    return entries.map((e) => ({ crew_id: e.crew_id, score: 100, burden: 0, deviation: 0, over: false, band: 'high' as ScoreBand }))
+  }
+  // C2: the burden measure is the RATE (burden ÷ opportunities), but re-expressed at
+  // the lane's AVERAGE opportunity count. The relative structure is the rate (so the
+  // score reflects watches-per-availability, fixing join-timing); the magnitude is
+  // restored to count-scale so the EPSILON spread-floor (a constant in
+  // fairness_constants) calibrates EXACTLY as before. With EQUAL availability,
+  // oppTotal == meanOpp for everyone → burdenScore == the pre-C2 count burden → the
+  // z-score, the floor, and the 0–100 output are byte-identical (graceful degradation).
+  const meanOpp = rated.reduce((a, e) => a + oppTotal(e), 0) / rated.length
+  // When opp == meanOpp (always true under EQUAL availability) return the count
+  // burden DIRECTLY: rate·meanOpp == burden there, but computing it as a division
+  // then multiply loses bit-exactness — returning burden keeps degradation
+  // BYTE-identical. The rate-scaling path runs only for genuinely mixed availability.
+  const burdenScore = (e: LedgerEntry) => { const o = oppTotal(e); return o === meanOpp ? burden(e) : (burden(e) * meanOpp) / o }
+  const burdens = rated.map(burdenScore)
   const mean = burdens.reduce((a, b) => a + b, 0) / burdens.length
   const variance = burdens.reduce((a, b) => a + (b - mean) ** 2, 0) / burdens.length // population
   const spread = Math.max(Math.sqrt(variance), EPSILON)
-  return entries.map((e, i) => {
-    const b = burdens[i]
+  return entries.map((e) => {
+    if (oppTotal(e) === 0) return { crew_id: e.crew_id, score: 100, burden: 0, deviation: 0, over: false, band: 'high' as ScoreBand }
+    const b = burdenScore(e)
     const deviation = b - mean
     const z = deviation / spread
     const score = Math.max(0, Math.min(100, 100 - Math.abs(z) * K))

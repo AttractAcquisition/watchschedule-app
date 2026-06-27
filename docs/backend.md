@@ -225,14 +225,26 @@ create table fairness_ledger (
   seed_last_watch_date    date,
   seed_last_weekend_date  date,
   seed_consecutive_run  int not null default 0,
+  -- C2 — OPPORTUNITY denominators (watch-slots of each rotation the crew was
+  -- AVAILABLE for, since available_from), counted for every available crew on every
+  -- scheduled date across seed + replay + run. Burden/cost/score are now RATES
+  -- (count ÷ opportunities). seed_* mirror the immutable seed base. (migration
+  -- 20260627030000; existing rows backfilled EQUAL per lane so degradation holds.)
+  weekday_opportunities int not null default 0,
+  weekend_opportunities int not null default 0,
+  friday_opportunities  int not null default 0,
+  seed_weekday_opportunities int not null default 0,
+  seed_weekend_opportunities int not null default 0,
+  seed_friday_opportunities  int not null default 0,
   -- Derived, cached for display (recomputed on update):
-  fairness_score     numeric,                      -- 0-100, see fairness.md
+  fairness_score     numeric,                      -- 0-100, see fairness.md (C2: rate-based)
   updated_at         timestamptz not null default now(),
   unique(lane_id, crew_id)
 );
 create index on fairness_ledger(vessel_id);
 ```
 > **Persistence:** `seed-fairness` initialises these from uploaded history; `generate-schedule` increments them as it assigns. The score shown on the dashboard is `fairness_score`, computed per `fairness.md`. Resetting requires an explicit action (not part of normal generation).
+> **C2 (fairness correction):** burden is now `watches ÷ opportunities-available-for` (the opportunity counters above), using `crew_members.available_from` (C1). The change is contained to the scoring (`fairness_engine`) + a Step-A `available_from <= date` candidate filter + opportunity counting in `generate-schedule`/`seed-fairness`/replay; **`fairness_constants` is unchanged**. Historical treatment = grandfather-via-degradation: existing count-based rows keep their counts, opportunities were backfilled EQUAL per lane, so existing equal-availability vessels rank/score identically (byte-identical schedule) — no recompute, immutable schedules untouched.
 
 **`fairness_events`** — an append-only audit of *why* each assignment happened, so the chatbot can explain decisions ("why is Alex on Friday").
 ```sql

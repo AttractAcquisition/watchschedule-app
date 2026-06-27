@@ -72,8 +72,10 @@ Deno.serve(async (req) => {
         }
       })
     }
-    const { data: ledger } = await admin.from('fairness_ledger').select('lane_id,crew_id,total_watches,weekday_watches,weekend_watches,friday_watches,last_watch_date,consecutive_run,fairness_score').eq('vessel_id', vesselId)
-    const ledgerCtx = (ledger ?? []).map((l) => ({ lane: laneLabel(l.lane_id), crew: crewLabel(l.crew_id), total_watches: l.total_watches, weekday_watches: l.weekday_watches, weekend_watches: l.weekend_watches, friday_watches: l.friday_watches, last_watch_date: l.last_watch_date, consecutive_run: l.consecutive_run, fairness_score: l.fairness_score }))
+    const { data: ledger } = await admin.from('fairness_ledger').select('lane_id,crew_id,total_watches,weekday_watches,weekend_watches,friday_watches,weekday_opportunities,weekend_opportunities,friday_opportunities,last_watch_date,consecutive_run,fairness_score').eq('vessel_id', vesselId)
+    // C2 — include opportunity denominators so the assistant explains fairness from
+    // honest RATES ("stood X of Y available weekends"), not absolute counts.
+    const ledgerCtx = (ledger ?? []).map((l) => ({ lane: laneLabel(l.lane_id), crew: crewLabel(l.crew_id), total_watches: l.total_watches, weekday_watches: l.weekday_watches, weekend_watches: l.weekend_watches, friday_watches: l.friday_watches, weekday_opportunities: l.weekday_opportunities, weekend_opportunities: l.weekend_opportunities, friday_opportunities: l.friday_opportunities, last_watch_date: l.last_watch_date, consecutive_run: l.consecutive_run, fairness_score: l.fairness_score }))
 
     const context = {
       vessel_name: vessel.name,

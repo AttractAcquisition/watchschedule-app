@@ -12,6 +12,7 @@ export interface Crew {
   id: string
   department: string | null
   eligible: boolean
+  available_from: string // C2 — 'YYYY-MM-DD'; opportunities count only on/after this
 }
 export interface LaneRow {
   id: string
@@ -79,6 +80,25 @@ function rotationFlat(led: Ledger, pool: string[], dayType: DayType): boolean {
   return pool.every((id) => (led[id]?.[field] ?? 0) === 0)
 }
 
+// C2 — count one OPPORTUNITY of date `d`'s rotation for every crew member who was
+// AVAILABLE on `d` (available_from <= d), creating the ledger entry if needed. The
+// SAME helper is used by the current run AND by replay so seed/replay/run agree on
+// "an opportunity available for" (the off-by-one guard). It increments for ALL
+// available crew (not just the one assigned), which is exactly what keeps the
+// denominator EQUAL across equal-availability crew → graceful degradation.
+function bumpOpportunities(led: Ledger, poolIds: string[], avail: Map<string, string>, d: string): void {
+  const wd = isoWeekday(d)
+  const weekend = wd >= 6
+  const friday = wd === 5
+  for (const id of poolIds) {
+    const af = avail.get(id)
+    if (af !== undefined && af > d) continue // not yet available on this date
+    const e = led[id] ?? (led[id] = zeroEntry(id))
+    if (weekend) e.weekend_opportunities += 1
+    else { e.weekday_opportunities += 1; if (friday) e.friday_opportunities += 1 }
+  }
+}
+
 // B7 — a charter window pauses the rotation. Inclusive [start, end] date range.
 export interface CharterRange {
   start: string // 'YYYY-MM-DD'
@@ -104,6 +124,7 @@ export function planSchedule(input: PlanInput): GenPlan {
 
   const poolByLane = new Map<string, string[]>()
   for (const lane of activeLanes) poolByLane.set(lane.id, eligiblePool(lane, input.crew))
+  const availMap = new Map(input.crew.map((c) => [c.id, c.available_from])) // C2 — per-crew available_from
 
   // Clone the base ledgers so the function stays pure (no input mutation).
   const ledgers: Record<string, Ledger> = {}
@@ -162,14 +183,21 @@ export function planSchedule(input: PlanInput): GenPlan {
       if (covered.has(`${lane.id}:${date}`)) continue // assigned by an earlier block lead
       const pool = poolByLane.get(lane.id)!
       const led = ledgers[lane.id]
-      const laneSel: Lane = { id: lane.id, kind: lane.kind, department: lane.department, pool }
 
       const days = blockDaysFor(date)
+      // C2 — count an opportunity for every available crew on every scheduled block
+      // day, BEFORE selection, so the cost rate includes current opportunities.
+      for (const d of days) bumpOpportunities(led, pool, availMap, d)
+      // Step-A (C2) — only crew available on/before the lead date are candidates
+      // (guarantees opp >= 1; a not-yet-joined crew is never scheduled before arrival).
+      const availPool = pool.filter((id) => (availMap.get(id) ?? '') <= date)
+      const laneSel: Lane = { id: lane.id, kind: lane.kind, department: lane.department, pool: availPool }
+
       // candidate must be free on every day of the block
       const blockBusy = new Set<string>()
       for (const d of days) for (const id of assignedOn(d)) blockBusy.add(id)
 
-      // ONE selection at the lead day — unchanged selectCandidate / unchanged scoring.
+      // ONE selection at the lead day — unchanged seam; selectionCost is now cost÷opp.
       const res = selectCandidate(laneSel, date, leadType, leadIsFriday, led, blockBusy)
       if (res.crew_id === null) {
         for (const d of days) {
@@ -185,7 +213,7 @@ export function planSchedule(input: PlanInput): GenPlan {
       let crewId = res.crew_id
       let reason = res.reason_code
       const anchor = leadType === 'weekend' ? input.settings.weekend_rotation_anchor : input.settings.weekday_rotation_anchor
-      if (anchor && rotationFlat(led, pool, leadType)) {
+      if (anchor && rotationFlat(led, availPool, leadType)) {
         const elig = res.detail.candidates.map((c) => c.crew_id).slice().sort()
         const pick = elig[anchor % elig.length]
         if (pick !== crewId) { crewId = pick; reason = 'anchor_start' }
@@ -222,10 +250,17 @@ export function planSchedule(input: PlanInput): GenPlan {
 // ledger so regeneration is fairness-aware without double-counting the replaced
 // future (schedule.md §7). For first generation there are none, so base = empty.
 // (Phase 8 seeding will pre-fill the base before this replay.)
+// C2 — `poolByLane` + `availMap` let replay also tally OPPORTUNITIES for the
+// replayed history (every prior assignment date is one opportunity for every crew
+// available then), using the SAME bumpOpportunities helper as the run so the
+// denominator is consistent across seed + replay + run. Omitting them (legacy
+// callers) replays counts only.
 export function replayLedgers(
   activeLaneIds: string[],
   priorAssignments: PlannedAssignment[],
   seed: Record<string, Ledger> = {},
+  poolByLane: Map<string, string[]> = new Map(),
+  availMap: Map<string, string> = new Map(),
 ): Record<string, Ledger> {
   const ledgers: Record<string, Ledger> = {}
   for (const laneId of activeLaneIds) {
@@ -236,6 +271,9 @@ export function replayLedgers(
   const sorted = [...priorAssignments].sort((a, b) => (a.watch_date < b.watch_date ? -1 : a.watch_date > b.watch_date ? 1 : 0))
   for (const a of sorted) {
     if (!ledgers[a.lane_id]) continue // lane no longer active
+    // opportunity for every available crew on this historical date (one assignment
+    // per lane per date == one opportunity), then the watch for the one who stood.
+    bumpOpportunities(ledgers[a.lane_id], poolByLane.get(a.lane_id) ?? [], availMap, a.watch_date)
     const laneSel: Lane = { id: a.lane_id, kind: 'solo', department: null, pool: [] }
     updateLedger(laneSel, a.crew_id, a.watch_date, a.day_type, a.is_friday, ledgers[a.lane_id])
   }

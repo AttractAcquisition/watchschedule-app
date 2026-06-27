@@ -210,66 +210,84 @@ export type Database = {
           consecutive_run: number
           crew_id: string
           fairness_score: number | null
+          friday_opportunities: number
           friday_watches: number
           id: string
           lane_id: string
           last_watch_date: string | null
           last_weekend_date: string | null
           seed_consecutive_run: number
+          seed_friday_opportunities: number
           seed_friday_watches: number
           seed_last_watch_date: string | null
           seed_last_weekend_date: string | null
           seed_total_watches: number
+          seed_weekday_opportunities: number
           seed_weekday_watches: number
+          seed_weekend_opportunities: number
           seed_weekend_watches: number
           total_watches: number
           updated_at: string
           vessel_id: string
+          weekday_opportunities: number
           weekday_watches: number
+          weekend_opportunities: number
           weekend_watches: number
         }
         Insert: {
           consecutive_run?: number
           crew_id: string
           fairness_score?: number | null
+          friday_opportunities?: number
           friday_watches?: number
           id?: string
           lane_id: string
           last_watch_date?: string | null
           last_weekend_date?: string | null
           seed_consecutive_run?: number
+          seed_friday_opportunities?: number
           seed_friday_watches?: number
           seed_last_watch_date?: string | null
           seed_last_weekend_date?: string | null
           seed_total_watches?: number
+          seed_weekday_opportunities?: number
           seed_weekday_watches?: number
+          seed_weekend_opportunities?: number
           seed_weekend_watches?: number
           total_watches?: number
           updated_at?: string
           vessel_id: string
+          weekday_opportunities?: number
           weekday_watches?: number
+          weekend_opportunities?: number
           weekend_watches?: number
         }
         Update: {
           consecutive_run?: number
           crew_id?: string
           fairness_score?: number | null
+          friday_opportunities?: number
           friday_watches?: number
           id?: string
           lane_id?: string
           last_watch_date?: string | null
           last_weekend_date?: string | null
           seed_consecutive_run?: number
+          seed_friday_opportunities?: number
           seed_friday_watches?: number
           seed_last_watch_date?: string | null
           seed_last_weekend_date?: string | null
           seed_total_watches?: number
+          seed_weekday_opportunities?: number
           seed_weekday_watches?: number
+          seed_weekend_opportunities?: number
           seed_weekend_watches?: number
           total_watches?: number
           updated_at?: string
           vessel_id?: string
+          weekday_opportunities?: number
           weekday_watches?: number
+          weekend_opportunities?: number
           weekend_watches?: number
         }
         Relationships: [
