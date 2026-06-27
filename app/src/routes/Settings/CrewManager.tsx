@@ -24,7 +24,7 @@ export function CrewManager() {
     queryKey: key,
     enabled: !!vesselId,
     queryFn: async () => {
-      const { data, error } = await supabase.from('crew_members').select('id,full_name,position,department,eligible,ineligible_reason,ineligible_note').eq('vessel_id', vesselId!).order('full_name')
+      const { data, error } = await supabase.from('crew_members').select('id,full_name,position,department,eligible,ineligible_reason,ineligible_note,available_from').eq('vessel_id', vesselId!).order('full_name')
       if (error) throw error
       return data as CrewMember[]
     },

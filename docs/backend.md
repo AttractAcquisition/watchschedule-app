@@ -103,10 +103,17 @@ create table crew_members (
   eligible      boolean not null default true, -- "not eligible for watch" toggle (false = excluded)
   ineligible_reason ineligibility_reason,      -- nullable; set when eligible=false
   ineligible_note   text,
+  available_from date not null default current_date, -- C1: crew availability start. NEW crew default to insertion date via this DEFAULT (every insert path — OCR onboarding, settings-upload OCR, manual — captain enters nothing). Additive groundwork; consumed by fairness only from C2.
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now()
 );
 create index on crew_members(vessel_id);
+-- C1 backfill (migration 20260627020000): existing crew set to a single PER-VESSEL
+-- anchor = COALESCE(min(schedules.start_date), vessels.created_at) — per-vessel (NOT
+-- per-crew created_at) so every existing vessel's crew get EQUAL available_from,
+-- which makes C2's opportunity-fairness degrade to today's behaviour for same-roster
+-- vessels. available_from is captain-editable config under the existing
+-- crew_rw_own_vessel RLS policy (client-RW, vessel-scoped).
 ```
 
 **`watch_settings`** — the shared settings (onboarding Step 2 == /settings). One row per vessel.

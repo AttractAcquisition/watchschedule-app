@@ -189,7 +189,8 @@ The captain's control surface. Sections:
 - **Crew management (CRUD):**
   - List all crew (name, position, department, eligibility).
   - **Add** (name + position -> auto department, override allowed).
-  - **Edit** (name, position, department).
+  - **Edit** (name, position, department, **available-from date**).
+  - **Available from (C1):** each crew member shows an **"Available from {date}"** line and an **optional, editable** date in the row editor. It is set **automatically** on add (DB default = insertion date, every path — OCR onboarding, settings-upload OCR, manual), so the captain **enters nothing**; they *may* correct it (e.g. someone who joined before setup) but are never required to. Additive groundwork — nothing behaves differently until C2 makes fairness consume it. Tokens only, unobtrusive.
   - **Delete** (destructive button per `branding.md`; confirm).
   - **"Not eligible for watch" toggle** per member, with an optional reason (leave, sickness, role exemption, training/junior). Ineligible crew are excluded from the next generation's watch pool but stay in the list. Marked visually (status dot + label).
   - Make the timing explicit: "Changes apply when you regenerate the schedule."

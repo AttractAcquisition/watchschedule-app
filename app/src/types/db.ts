@@ -86,6 +86,7 @@ export type Database = {
       }
       crew_members: {
         Row: {
+          available_from: string
           created_at: string
           department: Database["public"]["Enums"]["department"]
           eligible: boolean
@@ -100,6 +101,7 @@ export type Database = {
           vessel_id: string
         }
         Insert: {
+          available_from?: string
           created_at?: string
           department: Database["public"]["Enums"]["department"]
           eligible?: boolean
@@ -114,6 +116,7 @@ export type Database = {
           vessel_id: string
         }
         Update: {
+          available_from?: string
           created_at?: string
           department?: Database["public"]["Enums"]["department"]
           eligible?: boolean

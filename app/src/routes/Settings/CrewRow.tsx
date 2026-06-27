@@ -3,13 +3,14 @@
 // (with reason), and delete (destructive, confirmed). Ineligible crew stay in
 // the list (status dot + label) but are excluded from the next generation's pool.
 import { useState } from 'react'
+import { format, parseISO } from 'date-fns'
 import { Check, Pencil, Trash2, X } from 'lucide-react'
 import { DEPARTMENTS, type Department } from '../../lib/classifyDepartment'
 import type { Database } from '../../types/db'
 
 type Reason = Database['public']['Enums']['ineligibility_reason']
-export type CrewMember = Pick<Database['public']['Tables']['crew_members']['Row'], 'id' | 'full_name' | 'position' | 'department' | 'eligible' | 'ineligible_reason' | 'ineligible_note'>
-export type CrewPatch = Partial<Pick<CrewMember, 'full_name' | 'position' | 'department' | 'eligible' | 'ineligible_reason' | 'ineligible_note'>>
+export type CrewMember = Pick<Database['public']['Tables']['crew_members']['Row'], 'id' | 'full_name' | 'position' | 'department' | 'eligible' | 'ineligible_reason' | 'ineligible_note' | 'available_from'>
+export type CrewPatch = Partial<Pick<CrewMember, 'full_name' | 'position' | 'department' | 'eligible' | 'ineligible_reason' | 'ineligible_note' | 'available_from'>>
 
 const DEPT_LABEL: Record<Department, string> = { deck: 'Deck', interior: 'Interior', engineering: 'Engineering', officer: 'Officer' }
 const REASON_LABEL: Record<Reason, string> = { leave: 'On leave', sick: 'Sick', training: 'Training / junior', role_exempt: 'Role exempt', other: 'Other' }
@@ -20,13 +21,14 @@ export function CrewRow({ member, onSave, onDelete, busy }: { member: CrewMember
   const [name, setName] = useState(member.full_name)
   const [position, setPosition] = useState(member.position)
   const [department, setDepartment] = useState<Department>(member.department)
+  const [availFrom, setAvailFrom] = useState(member.available_from)
   const [confirmDel, setConfirmDel] = useState(false)
   const [markingIneligible, setMarkingIneligible] = useState(false)
   const [reason, setReason] = useState<Reason>(member.ineligible_reason ?? 'leave')
   const [note, setNote] = useState(member.ineligible_note ?? '')
 
   function saveEdit() {
-    onSave(member.id, { full_name: name.trim(), position: position.trim(), department })
+    onSave(member.id, { full_name: name.trim(), position: position.trim(), department, available_from: availFrom })
     setEditing(false)
   }
 
@@ -39,8 +41,12 @@ export function CrewRow({ member, onSave, onDelete, busy }: { member: CrewMember
           <select value={department} onChange={(e) => setDepartment(e.target.value as Department)} className="rounded-ws-sm border border-ws-line bg-ws-steel-3 px-ws-2 py-ws-1 text-ws-sm text-ws-text focus:border-ws-gold focus:outline-none">
             {DEPARTMENTS.map((d) => <option key={d} value={d}>{DEPT_LABEL[d]}</option>)}
           </select>
+          {/* C1 — available_from: optional, defaulted (set automatically on add). Editable for someone who joined before setup; never required. */}
+          <label className="flex items-center gap-ws-2 text-ws-xs text-ws-text-muted">Available from
+            <input type="date" value={availFrom} onChange={(e) => setAvailFrom(e.target.value)} className="rounded-ws-sm border border-ws-line bg-ws-steel-3 px-ws-2 py-ws-1 text-ws-sm text-ws-text focus:border-ws-gold focus:outline-none" />
+          </label>
           <button type="button" onClick={saveEdit} disabled={busy || !name.trim() || !position.trim()} aria-label="Save" className="flex h-10 w-10 items-center justify-center rounded-ws-sm bg-ws-gold text-ws-text-on-gold hover:bg-ws-gold-bright disabled:bg-ws-steel-3"><Check className="h-4 w-4" aria-hidden /></button>
-          <button type="button" onClick={() => { setEditing(false); setName(member.full_name); setPosition(member.position); setDepartment(member.department) }} aria-label="Cancel" className="flex h-10 w-10 items-center justify-center rounded-ws-sm text-ws-text-muted hover:bg-ws-steel-3 hover:text-ws-text"><X className="h-4 w-4" aria-hidden /></button>
+          <button type="button" onClick={() => { setEditing(false); setName(member.full_name); setPosition(member.position); setDepartment(member.department); setAvailFrom(member.available_from) }} aria-label="Cancel" className="flex h-10 w-10 items-center justify-center rounded-ws-sm text-ws-text-muted hover:bg-ws-steel-3 hover:text-ws-text"><X className="h-4 w-4" aria-hidden /></button>
         </div>
       ) : (
         <div className="flex items-center justify-between gap-ws-3">
@@ -50,6 +56,7 @@ export function CrewRow({ member, onSave, onDelete, busy }: { member: CrewMember
               <p className="truncate text-ws-sm font-medium text-ws-text">{member.full_name}</p>
               <p className="truncate text-ws-xs text-ws-text-muted">
                 {member.position} · {DEPT_LABEL[member.department]}
+                <span className="text-ws-text-faint"> · Available from {format(parseISO(member.available_from), 'd MMM yyyy')}</span>
                 {!member.eligible && <span className="text-ws-text-faint"> · Not on watch{member.ineligible_reason ? ` (${REASON_LABEL[member.ineligible_reason]})` : ''}</span>}
               </p>
             </div>
