@@ -32,6 +32,7 @@ const ANCHORS_HELP =
   'Sets which crew member the rotation starts from on a brand-new schedule, before any watch history exists. Once schedules have been generated, fairness takes over automatically and this no longer applies. Most vessels can leave this at default.'
 import {
   DEPT_LABEL, deptMaxForTier, deriveLanes, makeWatchSettingsSchema, reconcileLanes, todayISO,
+  WEEKEND_STRUCTURES, WEEKEND_STRUCTURE_LABEL,
   type ExistingLane, type LaneRef, type Tier, type WatchSettingsValues as FormValues,
 } from './watchSettings'
 
@@ -87,6 +88,7 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
     defaultValues: {
       selected_departments: [], horizon_weeks: 4, schedule_start_date: todayISO(),
       include_weekends: true, weekday_rotation_anchor: 0, weekend_rotation_anchor: 0,
+      weekend_structure: 'per_day',
     },
   })
 
@@ -99,6 +101,7 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
       include_weekends: existing.include_weekends,
       weekday_rotation_anchor: existing.weekday_rotation_anchor ?? 0,
       weekend_rotation_anchor: existing.weekend_rotation_anchor ?? 0,
+      weekend_structure: existing.weekend_structure ?? 'per_day',
     })
   }, [existing, reset])
 
@@ -133,6 +136,7 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
           include_weekends: values.include_weekends,
           weekday_rotation_anchor: values.weekday_rotation_anchor,
           weekend_rotation_anchor: values.weekend_rotation_anchor,
+          weekend_structure: values.weekend_structure,
         },
         { onConflict: 'vessel_id' }
       )
@@ -276,6 +280,24 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
           Schedule weekend watches (Sat/Sun) — {includeWeekends ? 'on' : 'off'}
         </span>
       </label>
+
+      {/* Weekend structure (B6) — only meaningful when weekends are scheduled. */}
+      {includeWeekends && (
+        <fieldset className="space-y-ws-2">
+          <legend className="block text-ws-sm font-medium text-ws-text-muted">Weekend coverage</legend>
+          <div className="space-y-ws-2">
+            {WEEKEND_STRUCTURES.map((ws) => (
+              <label key={ws} className="flex items-center gap-ws-3">
+                <input type="radio" value={ws} {...register('weekend_structure')} className="h-4 w-4 accent-ws-gold" />
+                <span className="text-ws-sm text-ws-text">{WEEKEND_STRUCTURE_LABEL[ws]}</span>
+              </label>
+            ))}
+          </div>
+          <p className="font-mono text-ws-xs text-ws-text-faint">
+            Block modes assign one person across the whole weekend (and Friday); fairness still counts each covered day.
+          </p>
+        </fieldset>
+      )}
 
       {/* Advanced: rotation anchors (optional) */}
       <div>

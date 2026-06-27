@@ -246,6 +246,8 @@ Before building:
 
 ## PHASE B6 — Weekend Watch Structure — ENGINE-TOUCHING, AUDIT-GATED
 
+> **STATUS: DONE.** Audit confirmed NO freeze conflict — block modes are an orchestration change in `schedule_engine.ts` feeding the **unchanged** scoring; counting is **per covered day** (ruling), keeping `weekend_watches`/`friday_watches` meaning "days stood" across live + seeded + all modes. Shipped: enum `weekend_structure` + `watch_settings.weekend_structure default 'per_day'` (migration `20260626130000`, pure addition); a block-aware loop (one selection at the block's first day, assign across the block, `updateLedger` per day); `WatchSettingsForm` control gated to `include_weekends`. **Frozen-engine regression proven** — fairness.md §9 reproduces exactly and `fairness_engine.ts` + `fairness_constants.ts` are byte-unchanged; **`per_day` is byte-identical to the pre-B6 engine** (existing vessels untouched). Live: `sat_sun_block` and `fri_sat_sun_block` each assign one crew across the block, Friday counted/weighted, Monday-after-block exclusion holds.
+
 ### Objective
 Make the weekend watch *structure* configurable per vessel: (a) **one person per day** (current behaviour — Sat and Sun each assigned separately), (b) **one person for the whole weekend** (a single assignee covers Sat+Sun), or (c) **one person for Fri+Sat+Sun** (a single assignee covers Friday through Sunday). The generated schedule must honour the chosen structure, and fairness counting must remain correct **without changing the frozen scoring formula**.
 

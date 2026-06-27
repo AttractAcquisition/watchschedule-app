@@ -28,7 +28,7 @@ Per `backend.md`, `fairness_ledger` holds one row **per (lane, crew member)**. T
 |---|---|
 | `total_watches` | All watches ever stood by this member in this lane (weekday + weekend). |
 | `weekday_watches` | Watches on Mon–Fri in this lane. |
-| `weekend_watches` | Watches on Sat–Sun in this lane. |
+| `weekend_watches` | Watches on Sat–Sun in this lane. **Counted PER DAY** — under the B6 weekend-block modes (`sat_sun_block`/`fri_sat_sun_block`) a block-taker accrues one per covered weekend-day (a Sat+Sun block = +2). The block is a `schedule.md` *structure* choice; the scoring weights/formula here are **unchanged**. |
 | `friday_watches` | Watches specifically on Fridays (subset of weekday) in this lane. |
 | `last_watch_date` | Date of their most recent watch in this lane (any day). |
 | `last_weekend_date` | Date of their most recent **weekend** watch — drives the Monday-exclusion rule. |

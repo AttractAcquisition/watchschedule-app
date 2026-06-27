@@ -7,6 +7,14 @@ import { DEPARTMENTS, type Department } from '../../lib/classifyDepartment'
 import type { Database } from '../../types/db'
 
 export type Tier = Database['public']['Enums']['product_tier']
+export type WeekendStructure = Database['public']['Enums']['weekend_structure']
+
+export const WEEKEND_STRUCTURES: WeekendStructure[] = ['per_day', 'sat_sun_block', 'fri_sat_sun_block']
+export const WEEKEND_STRUCTURE_LABEL: Record<WeekendStructure, string> = {
+  per_day: 'One person per day',
+  sat_sun_block: 'One person covers Sat + Sun',
+  fri_sat_sun_block: 'One person covers Fri + Sat + Sun',
+}
 
 export const DEPT_LABEL: Record<Department, string> = {
   deck: 'Deck', interior: 'Interior', engineering: 'Engineering', officer: 'Officer',
@@ -26,6 +34,7 @@ export interface WatchSettingsValues {
   include_weekends: boolean
   weekday_rotation_anchor: number
   weekend_rotation_anchor: number
+  weekend_structure: WeekendStructure
 }
 
 // Tier-aware schema. The dept-count rule is load-bearing and mirrors the DB CHECK
@@ -40,6 +49,7 @@ export function makeWatchSettingsSchema(tier: Tier) {
       include_weekends: z.boolean(),
       weekday_rotation_anchor: z.coerce.number().int().min(0),
       weekend_rotation_anchor: z.coerce.number().int().min(0),
+      weekend_structure: z.enum(['per_day', 'sat_sun_block', 'fri_sat_sun_block']),
     })
     .superRefine((val, ctx) => {
       const depts = val.selected_departments

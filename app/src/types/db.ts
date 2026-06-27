@@ -12,31 +12,6 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       chat_messages: {
@@ -551,6 +526,7 @@ export type Database = {
           vessel_id: string
           weekday_rotation_anchor: number | null
           weekend_rotation_anchor: number | null
+          weekend_structure: Database["public"]["Enums"]["weekend_structure"]
         }
         Insert: {
           created_at?: string
@@ -563,6 +539,7 @@ export type Database = {
           vessel_id: string
           weekday_rotation_anchor?: number | null
           weekend_rotation_anchor?: number | null
+          weekend_structure?: Database["public"]["Enums"]["weekend_structure"]
         }
         Update: {
           created_at?: string
@@ -575,6 +552,7 @@ export type Database = {
           vessel_id?: string
           weekday_rotation_anchor?: number | null
           weekend_rotation_anchor?: number | null
+          weekend_structure?: Database["public"]["Enums"]["weekend_structure"]
         }
         Relationships: [
           {
@@ -606,6 +584,7 @@ export type Database = {
       payment_status: "unpaid" | "active" | "past_due" | "canceled"
       product_tier: "solo" | "dual" | "triple"
       watch_lane_kind: "solo" | "dept"
+      weekend_structure: "per_day" | "sat_sun_block" | "fri_sat_sun_block"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -731,9 +710,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       day_type: ["weekday", "weekend"],
@@ -749,6 +725,7 @@ export const Constants = {
       payment_status: ["unpaid", "active", "past_due", "canceled"],
       product_tier: ["solo", "dual", "triple"],
       watch_lane_kind: ["solo", "dept"],
+      weekend_structure: ["per_day", "sat_sun_block", "fri_sat_sun_block"],
     },
   },
 } as const

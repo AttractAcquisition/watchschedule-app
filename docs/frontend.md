@@ -137,6 +137,7 @@ Render the shared `WatchSettingsForm`. Available controls depend on `product_tie
 - **Schedule start date / watch start day.**
 - **Advanced rotation anchors** — collapsed by default, with a **"?" help tooltip** (B2 item 2; keyboard-focusable + hover, `prefers-reduced-motion` respected) explaining that anchors only set the rotation's starting crew member on a brand-new schedule before any history exists; once schedules have been generated, fairness takes over and anchors no longer apply, so most vessels leave them at default.
 - Weekday vs weekend handling is **enforced by the engine** (Mon–Fri and Sat–Sun are separate rotations — `schedule.md`); surface only the user-tunable parts (e.g. whether weekends are scheduled at all, rotation start point).
+- **Weekend coverage (B6 — `weekend_structure`):** a control offering *one person per day* (`per_day`, default), *one person covers Sat+Sun* (`sat_sun_block`), or *one person covers Fri+Sat+Sun* (`fri_sat_sun_block`). **Shown ONLY when `include_weekends` is on** (block modes are moot without weekends). It's a scheduling-structure choice — the calendar then shows the same crew across the block days (assignments are still stored per day), and fairness counts each covered day (scoring unchanged).
 - The precise settings schema is defined alongside `schedule.md`; this form binds controls to it and validates with Zod.
 
 On confirm -> persist to `watch_settings`. Advance to Step 3.

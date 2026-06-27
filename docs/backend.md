@@ -53,6 +53,7 @@ create type watch_lane_kind as enum ('solo', 'dept');         -- solo = single s
 create type day_type as enum ('weekday', 'weekend');           -- Mon-Fri vs Sat-Sun rotations
 create type onboarding_step as enum ('crew', 'settings', 'generate', 'complete');
 create type ineligibility_reason as enum ('leave', 'sick', 'training', 'role_exempt', 'other');
+create type weekend_structure as enum ('per_day', 'sat_sun_block', 'fri_sat_sun_block'); -- B6: weekend coverage shape
 ```
 
 ### 2.2 Tables
@@ -121,6 +122,7 @@ create table watch_settings (
   horizon_weeks        int not null default 4 check (horizon_weeks between 1 and 13),
   schedule_start_date  date not null,
   include_weekends     boolean not null default true,  -- whether Sat/Sun rota is generated
+  weekend_structure    weekend_structure not null default 'per_day', -- B6: per_day | sat_sun_block | fri_sat_sun_block (structure only; scoring unchanged, counts per covered day)
   -- Rotation anchors (optional; engine has sane defaults):
   weekday_rotation_anchor int default 0,               -- starting index into eligible pool for Mon-Fri
   weekend_rotation_anchor int default 0,               -- starting index for Sat-Sun

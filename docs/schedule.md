@@ -24,7 +24,7 @@ All writes are performed by the Edge Function using the **service-role** client.
 
 Loaded server-side at the start of a run (re-derive `vessel_id` from the JWT — never trust the client):
 
-- **`watch_settings`** for the vessel: `tier`, `selected_departments`, `horizon_weeks` (1–13, capped at ~3 months), `schedule_start_date`, `include_weekends`, rotation anchors.
+- **`watch_settings`** for the vessel: `tier`, `selected_departments`, `horizon_weeks` (1–13, capped at ~3 months), `schedule_start_date`, `include_weekends`, rotation anchors, and **`weekend_structure`** (B6: `per_day` | `sat_sun_block` | `fri_sat_sun_block`).
 - **`crew_members`**: the full crew, with `department` and `eligible`.
 - **`watch_lanes`**: the concrete lanes (derived from settings — see section 3).
 - **`fairness_ledger`**: the current persistent state per (lane, crew) — possibly seeded by `seed-fairness`, possibly zero.
@@ -62,6 +62,20 @@ Within each lane, the engine maintains **two conceptually separate rotations**:
 They are separate because their fairness is tracked separately (`fairness.md` section 1–4) and because the Friday weighting and the Monday-after-weekend exclusion only make sense in this split.
 
 **Mechanically**, the engine does NOT pre-shuffle two fixed orderings. Instead, for each date it asks the fairness selector for the best candidate *for that day type*, which reads the appropriate counters. This keeps both rotations balanced dynamically as the ledger evolves across the horizon (and across past generations). The `weekday_rotation_anchor` / `weekend_rotation_anchor` settings are only used as a starting bias / deterministic seed for the *very first* assignment when the ledger is completely flat (all candidates equal) — they ensure a defined, repeatable starting point rather than an arbitrary one.
+
+### 4.1 Weekend structure (B6 — `weekend_structure`)
+
+Weekend coverage shape is configurable per vessel — a **scheduling-structure** choice that does **not** change the fairness scoring:
+
+- **`per_day`** (default) — one person per day; Sat and Sun are independent picks (the original behaviour).
+- **`sat_sun_block`** — one person covers the whole **Sat+Sun**.
+- **`fri_sat_sun_block`** — one person covers **Fri+Sat+Sun**.
+
+A block is decided by **one selection at its first chronological day** (the *lead*) via the unchanged fairness selector, then the chosen crew is assigned across every day of the block:
+- `sat_sun_block` → **Saturday** leads `{Sat, Sun}` (selected on weekend cost — weekend balance).
+- `fri_sat_sun_block` → **Friday** leads `{Fri, Sat, Sun}` (selected on the weekday+Friday cost — **Friday-spread**: lowest-Friday crew gets the block).
+
+**Counting is PER COVERED DAY:** `updateLedger` is called once per day in the block with that day's own day-type/Friday flag, so `weekend_watches`/`friday_watches` keep meaning "days stood" — identical to `per_day`, to the live ledger, and to `seed-fairness`. This is the decisive reason for per-day counting (no unit seam across modes/seeding). Consequently the **scoring weights/formula are unchanged** (the frozen `fairness_engine` + `fairness_constants`); block modes are an orchestration change in `schedule_engine` only. The block-taker's Friday still counts and is weighted `W_FRIDAY`, and standing the weekend block sets `last_weekend_date` to the block's Sunday → the **Monday-after-weekend exclusion still fires**. Block modes are only meaningful when `include_weekends = true`; with weekends off, the in-range days collapse (a block degrades to its scheduled days only — never crashes). Storage stays **one `watch_assignments` row per (lane, date)**, so regeneration replay and seeding remain per-day automatically.
 
 ---
 

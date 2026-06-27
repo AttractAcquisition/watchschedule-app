@@ -19,11 +19,19 @@ export interface LaneRow {
   department: string | null
   active: boolean
 }
+// B6 — weekend coverage shape. per_day = one person per day (default; today's
+// behaviour). sat_sun_block = one person covers Sat+Sun. fri_sat_sun_block = one
+// person covers Fri+Sat+Sun. This is a SCHEDULING-STRUCTURE choice only; the
+// fairness scoring (fairness_engine + fairness_constants) is unchanged — block
+// modes count weekend/Friday watches PER COVERED DAY via the same updateLedger.
+export type WeekendStructure = 'per_day' | 'sat_sun_block' | 'fri_sat_sun_block'
+
 export interface ScheduleSettings {
   horizon_weeks: number
   include_weekends: boolean
   weekday_rotation_anchor: number
   weekend_rotation_anchor: number
+  weekend_structure?: WeekendStructure // default 'per_day'
 }
 
 export interface PlannedAssignment {
@@ -102,41 +110,82 @@ export function planSchedule(input: PlanInput): GenPlan {
   const events: PlannedEvent[] = []
   const gaps: { lane_id: string; watch_date: string }[] = []
 
-  for (let date = start; date <= end; date = addDays(date, 1)) {
+  // B6 — weekend structure. A "block" is decided by ONE selection at its first
+  // chronological day (the lead), then the chosen crew is assigned across every
+  // day of the block, with updateLedger called PER COVERED DAY (per-day counting).
+  // per_day reduces to a single-day block == the original loop exactly (regression).
+  const structure: WeekendStructure = input.settings.weekend_structure ?? 'per_day'
+  const dayTypeOf = (d: string): DayType => (isoWeekday(d) >= 6 ? 'weekend' : 'weekday')
+  const isScheduled = (d: string) => d >= start && d <= end && !(dayTypeOf(d) === 'weekend' && !input.settings.include_weekends)
+  // Days covered by the lead at `date` (only in-range, scheduled days):
+  //   fri_sat_sun_block: Friday leads {Fri,Sat,Sun} (Friday-spread driven)
+  //   sat_sun_block:     Saturday leads {Sat,Sun}
+  // Degenerate boundary cases (a weekend day reached with its lead out of range, or
+  // weekends disabled) collapse to the in-range days only — never crash.
+  const blockDaysFor = (date: string): string[] => {
     const wd = isoWeekday(date)
-    const dayType: DayType = wd >= 6 ? 'weekend' : 'weekday'
-    const isFriday = wd === 5
-    if (dayType === 'weekend' && !input.settings.include_weekends) continue
+    if (structure === 'fri_sat_sun_block' && wd === 5) return [date, addDays(date, 1), addDays(date, 2)].filter(isScheduled)
+    if (structure === 'fri_sat_sun_block' && wd === 6) return [date, addDays(date, 1)].filter(isScheduled)
+    if (structure === 'sat_sun_block' && wd === 6) return [date, addDays(date, 1)].filter(isScheduled)
+    return [date]
+  }
 
-    const alreadyAssigned = new Set<string>()
+  // Crew assigned on a date (across lanes + earlier block leads). A block candidate
+  // must be free on ALL its days. For per_day this is exactly the original per-date set.
+  const assignedByDate = new Map<string, Set<string>>()
+  const assignedOn = (d: string): Set<string> => { let s = assignedByDate.get(d); if (!s) { s = new Set(); assignedByDate.set(d, s) } return s }
+  const covered = new Set<string>() // `${lane_id}:${date}` already handled by a block lead
+
+  for (let date = start; date <= end; date = addDays(date, 1)) {
+    const leadType = dayTypeOf(date)
+    if (leadType === 'weekend' && !input.settings.include_weekends) continue
+    const leadIsFriday = isoWeekday(date) === 5
+
     for (const lane of activeLanes) {
+      if (covered.has(`${lane.id}:${date}`)) continue // assigned by an earlier block lead
       const pool = poolByLane.get(lane.id)!
       const led = ledgers[lane.id]
       const laneSel: Lane = { id: lane.id, kind: lane.kind, department: lane.department, pool }
-      const res = selectCandidate(laneSel, date, dayType, isFriday, led, alreadyAssigned)
 
+      const days = blockDaysFor(date)
+      // candidate must be free on every day of the block
+      const blockBusy = new Set<string>()
+      for (const d of days) for (const id of assignedOn(d)) blockBusy.add(id)
+
+      // ONE selection at the lead day — unchanged selectCandidate / unchanged scoring.
+      const res = selectCandidate(laneSel, date, leadType, leadIsFriday, led, blockBusy)
       if (res.crew_id === null) {
-        // §10 empty lane: emit a gap, record the reason, never crash.
-        gaps.push({ lane_id: lane.id, watch_date: date })
-        events.push({ lane_id: lane.id, crew_id: null, watch_date: date, reason_code: 'no_eligible_crew', detail: res.detail })
+        for (const d of days) {
+          gaps.push({ lane_id: lane.id, watch_date: d })
+          events.push({ lane_id: lane.id, crew_id: null, watch_date: d, reason_code: 'no_eligible_crew', detail: res.detail })
+          covered.add(`${lane.id}:${d}`)
+        }
         continue
       }
 
-      // schedule.md §4 — anchor applies ONLY to the first pick of a flat rotation
+      // schedule.md §4 — anchor applies ONLY to the lead pick of a flat rotation
       // (default anchor 0 == the fairness id-fallback, so this is a no-op then).
       let crewId = res.crew_id
       let reason = res.reason_code
-      const anchor = dayType === 'weekend' ? input.settings.weekend_rotation_anchor : input.settings.weekday_rotation_anchor
-      if (anchor && rotationFlat(led, pool, dayType)) {
+      const anchor = leadType === 'weekend' ? input.settings.weekend_rotation_anchor : input.settings.weekday_rotation_anchor
+      if (anchor && rotationFlat(led, pool, leadType)) {
         const elig = res.detail.candidates.map((c) => c.crew_id).slice().sort()
         const pick = elig[anchor % elig.length]
         if (pick !== crewId) { crewId = pick; reason = 'anchor_start' }
       }
 
-      assignments.push({ lane_id: lane.id, crew_id: crewId, watch_date: date, day_type: dayType, is_friday: isFriday })
-      alreadyAssigned.add(crewId)
-      updateLedger(laneSel, crewId, date, dayType, isFriday, led)
-      events.push({ lane_id: lane.id, crew_id: crewId, watch_date: date, reason_code: reason, detail: res.detail })
+      // Assign across the block; count PER COVERED DAY — updateLedger once per day
+      // with that day's own day-type/Friday flag, so weekend_watches/friday_watches
+      // keep meaning "days stood" (the frozen formula is unchanged).
+      for (const d of days) {
+        const dType = dayTypeOf(d)
+        const dIsFriday = isoWeekday(d) === 5
+        assignments.push({ lane_id: lane.id, crew_id: crewId, watch_date: d, day_type: dType, is_friday: dIsFriday })
+        assignedOn(d).add(crewId)
+        updateLedger(laneSel, crewId, d, dType, dIsFriday, led)
+        events.push({ lane_id: lane.id, crew_id: crewId, watch_date: d, reason_code: reason, detail: res.detail })
+        covered.add(`${lane.id}:${d}`)
+      }
     }
   }
 

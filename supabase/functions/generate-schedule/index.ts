@@ -96,6 +96,7 @@ Deno.serve(async (req) => {
         include_weekends: settings.include_weekends,
         weekday_rotation_anchor: settings.weekday_rotation_anchor ?? 0,
         weekend_rotation_anchor: settings.weekend_rotation_anchor ?? 0,
+        weekend_structure: settings.weekend_structure ?? 'per_day', // B6
       },
       crew,
       lanes: activeLanes as LaneRow[],
