@@ -155,6 +155,10 @@ Add dated leave periods per crew member — those watch-days are removed from th
 
 ## PHASE C4 — Watch Groups (the original B8) on the corrected engine (freeze-safe)
 
+> **STATUS: DONE (2026-06-28) — C-WAVE COMPLETE.** A lane may now span a GROUP of 1+ departments, pooling their crew into one rotation. Additive/generalising: groups-of-one == today. Shipped: `lane_departments` junction (migration `20260628010000`, `unique(vessel_id, department)` disjointness; backfilled existing active lanes → one row each; dropped the superseded `watch_lanes` one-dept-per-lane unique; client-RW RLS); `eligiblePool` pools from the lane's department SET (`schedule_engine` orchestration only — `fairness_engine`/`fairness_constants` **byte-unchanged**); generate-schedule/seed-fairness load the junction; `WatchSettingsForm` group builder (per-department Lane selector) with disjointness + reconcile-by-set (carry unchanged / new lane = even-at-formation / retire+free). **Freeze-safe:** pure pool-membership; post-C2 §9 reproduces. **11/11 engine canary:** existing-vessel groups-of-one **byte-identical** to pre-C4; combined-group lane pools both departments; **honest regroup-reset** (new combined lane even from formation, no fictional counts; unchanged group carries forward); C3 leave on a grouped crew; determinism. **Live (deployed):** a (Deck & Engineering) lane pooled all 4 deck+eng crew into one rotation; DB disjointness rejects a department in two lanes (409); RLS client-RW (cross-vessel read empty). `partitionGroups` 5/5. Baseline = awthomas only.
+>
+> **— The C-wave (C1 availability data → C2 fairness correction → C3 dated leave → C4 groups) is complete. The fairness model is corrected (availability-aware) and built out; the one deliberate freeze amendment (C2) holds, and C1/C3/C4 are freeze-safe around it.**
+
 ### Objective
 A "group" is a bundle of one or more departments acting as a SINGLE combined lane — its members pooled into one rotation. The captain picks GROUPS instead of bare departments. Built LAST so it lands on the corrected, availability-aware engine, where it composes cleanly.
 

@@ -31,9 +31,9 @@ import { DEPARTMENTS, type Department } from '../../lib/classifyDepartment'
 const ANCHORS_HELP =
   'Sets which crew member the rotation starts from on a brand-new schedule, before any watch history exists. Once schedules have been generated, fairness takes over automatically and this no longer applies. Most vessels can leave this at default.'
 import {
-  DEPT_LABEL, deptMaxForTier, deriveLanes, makeWatchSettingsSchema, reconcileLanes, todayISO,
+  DEPT_LABEL, deptMaxForTier, makeWatchSettingsSchema, partitionGroups, groupKey, todayISO,
   WEEKEND_STRUCTURES, WEEKEND_STRUCTURE_LABEL,
-  type ExistingLane, type LaneRef, type Tier, type WatchSettingsValues as FormValues,
+  type Tier, type WatchSettingsValues as FormValues,
 } from './watchSettings'
 
 export interface WatchSettingsFormProps {
@@ -108,6 +108,30 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
   const selected = watch('selected_departments')
   const includeWeekends = watch('include_weekends')
 
+  // C4 — per-department lane assignment (which group/lane each selected dept is in).
+  // Default: each its own lane (groups-of-one). Prefilled from the vessel's current
+  // active dept lanes so the group builder round-trips.
+  const [groupOf, setGroupOf] = useState<Record<string, number>>({})
+  const { data: currentGroups } = useQuery({
+    queryKey: ['lane_groups', vesselId],
+    enabled: !!vesselId,
+    queryFn: async () => {
+      const [{ data: ls }, { data: ld }] = await Promise.all([
+        supabase.from('watch_lanes').select('id,kind,department,active').eq('vessel_id', vesselId!).eq('active', true),
+        supabase.from('lane_departments').select('lane_id,department').eq('vessel_id', vesselId!),
+      ])
+      const byLane = new Map<string, string[]>()
+      for (const r of ld ?? []) { const a = byLane.get(r.lane_id) ?? []; a.push(r.department); byLane.set(r.lane_id, a) }
+      return (ls ?? []).filter((l) => l.kind === 'dept').map((l) => byLane.get(l.id) ?? (l.department ? [l.department] : []))
+    },
+  })
+  useEffect(() => {
+    if (!currentGroups) return
+    const g: Record<string, number> = {}
+    currentGroups.forEach((set, i) => set.forEach((d) => { g[d] = i }))
+    if (Object.keys(g).length) setGroupOf(g)
+  }, [currentGroups])
+
   function toggleDept(d: Department) {
     const has = selected.includes(d)
     if (has) setValue('selected_departments', selected.filter((x) => x !== d), { shouldValidate: true })
@@ -142,31 +166,48 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
       )
       if (up.error) throw up.error
 
-      // 2) derive + reconcile watch_lanes (schedule.md §3). Removed departments
-      //    are marked INACTIVE (never deleted -> fairness history preserved);
-      //    re-added departments re-activate their existing lane (no duplicate, so
-      //    ledger keys stay stable); genuinely new departments are inserted.
-      //    The engine schedules ACTIVE lanes only.
-      const desired = deriveLanes(tier, values.selected_departments)
-      const { data: have, error: lanesErr } = await supabase
-        .from('watch_lanes').select('kind,department,active').eq('vessel_id', vesselId)
-      if (lanesErr) throw lanesErr
-      const plan = reconcileLanes((have ?? []) as ExistingLane[], desired)
-      if (plan.toInsert.length) {
-        const ins = await supabase.from('watch_lanes').insert(
-          plan.toInsert.map((l) => ({ vessel_id: vesselId, kind: l.kind, department: l.department, label: l.label, active: true }))
-        )
-        if (ins.error) throw ins.error
+      // 2) reconcile lanes as GROUPS (C4). Match desired groups (department-sets) to
+      //    ACTIVE lanes by exact dept-set: unchanged -> carry forward (ledger
+      //    preserved); new/changed -> a NEW lane (resets to even at formation —
+      //    honest on the post-C2 engine, no fictional counts); an active dept lane no
+      //    longer desired -> retire (active=false) + FREE its departments from the
+      //    junction so they can be re-grouped. The engine schedules ACTIVE lanes only.
+      const { data: active } = await supabase.from('watch_lanes').select('id,kind,department').eq('vessel_id', vesselId).eq('active', true)
+      const { data: ld } = await supabase.from('lane_departments').select('lane_id,department').eq('vessel_id', vesselId)
+      const deptsByLane = new Map<string, string[]>()
+      for (const r of ld ?? []) { const a = deptsByLane.get(r.lane_id) ?? []; a.push(r.department); deptsByLane.set(r.lane_id, a) }
+      const laneSetKey = (l: { id: string; department: string | null }) => groupKey((deptsByLane.get(l.id) ?? (l.department ? [l.department] : [])) as Department[])
+      const activeDept = (active ?? []).filter((l) => l.kind === 'dept')
+      const activeSolo = (active ?? []).filter((l) => l.kind === 'solo')
+
+      if (tier === 'solo') {
+        for (const l of activeDept) { await supabase.from('watch_lanes').update({ active: false }).eq('id', l.id); await supabase.from('lane_departments').delete().eq('lane_id', l.id) }
+        if (activeSolo.length === 0) {
+          const { data: solo } = await supabase.from('watch_lanes').select('id').eq('vessel_id', vesselId).eq('kind', 'solo').maybeSingle()
+          if (solo) await supabase.from('watch_lanes').update({ active: true }).eq('id', solo.id)
+          else { const r = await supabase.from('watch_lanes').insert({ vessel_id: vesselId, kind: 'solo', department: null, label: 'Watch', active: true }); if (r.error) throw r.error }
+        }
+      } else {
+        const groups = partitionGroups(values.selected_departments, groupOf)
+        const desiredKeys = new Set(groups.map(groupKey))
+        // retire active lanes not desired + free their departments (must happen BEFORE
+        // creating new lanes so re-grouped departments are unclaimed).
+        for (const l of activeDept) if (!desiredKeys.has(laneSetKey(l))) {
+          await supabase.from('watch_lanes').update({ active: false }).eq('id', l.id)
+          await supabase.from('lane_departments').delete().eq('lane_id', l.id)
+        }
+        for (const l of activeSolo) await supabase.from('watch_lanes').update({ active: false }).eq('id', l.id)
+        const carriedKeys = new Set(activeDept.filter((l) => desiredKeys.has(laneSetKey(l))).map(laneSetKey))
+        for (const g of groups) {
+          if (carriedKeys.has(groupKey(g))) continue // unchanged group -> carry (ledger preserved)
+          const label = g.map((d) => DEPT_LABEL[d]).join(' & ')
+          const { data: lane, error: le } = await supabase.from('watch_lanes').insert({ vessel_id: vesselId, kind: 'dept', department: [...g].sort()[0], label, active: true }).select('id').single()
+          if (le || !lane) throw le ?? new Error('lane insert failed')
+          const insLd = await supabase.from('lane_departments').insert(g.map((d) => ({ vessel_id: vesselId, lane_id: lane.id, department: d })))
+          if (insLd.error) throw insLd.error
+        }
       }
-      const setActive = async (lane: LaneRef, active: boolean) => {
-        // department can be null (solo) -> use .is(), not .eq()
-        let q = supabase.from('watch_lanes').update({ active }).eq('vessel_id', vesselId).eq('kind', lane.kind)
-        q = lane.department === null ? q.is('department', null) : q.eq('department', lane.department)
-        const { error } = await q
-        if (error) throw error
-      }
-      for (const l of plan.toReactivate) await setActive(l, true)
-      for (const l of plan.toDeactivate) await setActive(l, false)
+      await queryClient.invalidateQueries({ queryKey: ['lane_groups', vesselId] })
 
       setSaved(true)
       await onSaved?.()
@@ -244,6 +285,31 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
           <p className="mt-ws-2 font-mono text-ws-xs text-ws-text-faint">{selected.length}/{max} selected (min 1)</p>
           {errors.selected_departments && (
             <p role="alert" className="mt-ws-2 text-ws-sm text-ws-alert">{errors.selected_departments.message}</p>
+          )}
+
+          {/* C4 — Watch Groups: combine departments into a shared lane (one pooled
+              rotation). Default = each its own lane. Same lane number = combined. */}
+          {selected.length > 1 && (
+            <div className="mt-ws-4 space-y-ws-2 border-t border-ws-line pt-ws-3">
+              <p className="text-ws-sm font-medium text-ws-text-muted">Watch lanes — combine departments into one pooled rotation (optional)</p>
+              <div className="space-y-ws-2">
+                {selected.map((d, idx) => (
+                  <label key={d} className="flex items-center justify-between gap-ws-3 text-ws-sm text-ws-text">
+                    <span>{DEPT_LABEL[d]}</span>
+                    <select
+                      value={groupOf[d] ?? idx}
+                      onChange={(e) => { setGroupOf({ ...groupOf, [d]: Number(e.target.value) }); setSaved(false) }}
+                      className="rounded-ws-sm border border-ws-line bg-ws-steel-3 px-ws-2 py-ws-1 text-ws-sm text-ws-text focus:border-ws-gold focus:outline-none"
+                    >
+                      {selected.map((_, i) => <option key={i} value={i}>Lane {i + 1}</option>)}
+                    </select>
+                  </label>
+                ))}
+              </div>
+              <p className="font-mono text-ws-xs text-ws-text-faint">
+                {partitionGroups(selected, groupOf).map((g, i) => `Lane ${i + 1}: ${g.map((x) => DEPT_LABEL[x]).join(' & ')}`).join('  ·  ')}
+              </p>
+            </div>
           )}
         </div>
       )}

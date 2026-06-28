@@ -77,6 +77,23 @@ export interface DerivedLane {
   label: string
 }
 
+// C4 — partition the selected departments into GROUPS (lanes) by the per-department
+// lane assignment. Departments sharing a lane index pool into one combined lane.
+// Default (each dept its own index) => groups-of-one (today's behaviour). Each group
+// is dept-sorted for a stable lane key. Disjoint by construction (a dept has one index).
+export function partitionGroups(selected: Department[], groupOf: Record<string, number>): Department[][] {
+  const byGroup = new Map<number, Department[]>()
+  selected.forEach((d, i) => {
+    const g = groupOf[d] ?? i // default: own lane
+    const arr = byGroup.get(g) ?? []
+    arr.push(d)
+    byGroup.set(g, arr)
+  })
+  return [...byGroup.keys()].sort((a, b) => a - b).map((k) => [...byGroup.get(k)!].sort())
+}
+
+export const groupKey = (depts: Department[]): string => [...depts].sort().join('+')
+
 // schedule.md §3 — Solo -> 1 solo lane; Dual -> 2 dept lanes; Triple -> 3 dept lanes.
 // These are the desired ACTIVE lanes for the current settings.
 export function deriveLanes(tier: Tier, depts: Department[]): DerivedLane[] {

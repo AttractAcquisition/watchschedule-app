@@ -53,6 +53,15 @@ Deno.serve(async (req) => {
     }
     const activeLaneIds = activeLanes.map((l: LaneRow) => l.id)
 
+    // C4 — attach each lane's department SET (group) from the junction. A lane with
+    // no junction rows falls back to [department] (groups-of-one / legacy).
+    const { data: laneDeptRows } = await admin.from('lane_departments').select('lane_id,department').eq('vessel_id', vesselId)
+    const deptsByLane = new Map<string, string[]>()
+    for (const r of laneDeptRows ?? []) { const a = deptsByLane.get(r.lane_id) ?? []; a.push(r.department); deptsByLane.set(r.lane_id, a) }
+    for (const l of activeLanes as LaneRow[]) {
+      l.departments = deptsByLane.get(l.id) ?? (l.department ? [l.department] : [])
+    }
+
     const { data: crewRows } = await admin.from('crew_members').select('id,department,eligible,available_from').eq('vessel_id', vesselId)
     const crew = (crewRows ?? []) as Crew[]
 
@@ -98,7 +107,8 @@ Deno.serve(async (req) => {
     const poolByLane = new Map<string, string[]>()
     for (const l of activeLanes as LaneRow[]) {
       const base = crew.filter((c) => c.eligible)
-      const inLane = l.kind === 'solo' ? base : base.filter((c) => c.department === l.department)
+      const set = new Set(l.departments ?? (l.department ? [l.department] : []))
+      const inLane = l.kind === 'solo' ? base : base.filter((c) => c.department !== null && set.has(c.department))
       poolByLane.set(l.id, inLane.map((c) => c.id).sort())
     }
 

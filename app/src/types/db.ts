@@ -362,6 +362,45 @@ export type Database = {
           },
         ]
       }
+      lane_departments: {
+        Row: {
+          created_at: string
+          department: Database["public"]["Enums"]["department"]
+          id: string
+          lane_id: string
+          vessel_id: string
+        }
+        Insert: {
+          created_at?: string
+          department: Database["public"]["Enums"]["department"]
+          id?: string
+          lane_id: string
+          vessel_id: string
+        }
+        Update: {
+          created_at?: string
+          department?: Database["public"]["Enums"]["department"]
+          id?: string
+          lane_id?: string
+          vessel_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lane_departments_lane_id_fkey"
+            columns: ["lane_id"]
+            isOneToOne: false
+            referencedRelation: "watch_lanes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lane_departments_vessel_id_fkey"
+            columns: ["vessel_id"]
+            isOneToOne: false
+            referencedRelation: "vessels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           created_at: string

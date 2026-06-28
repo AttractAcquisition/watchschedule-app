@@ -77,8 +77,8 @@ These are load-bearing seams. The **names are exact** and identical across docs 
 - `seed-fairness` is the canonical directory; **`parse-past-schedule` is an alias for the same function** — do **not** create two.
 - Shared engine code lives in `supabase/functions/_shared/` (`fairness_constants.ts` + fairness engine + schedule engine + supabase admin client + cors), imported by both `generate-schedule` and `seed-fairness`. `fairness_constants.ts` is the single tuning point.
 
-### The 13 tables (backend.md §2)
-`vessels`, `profiles`, `crew_members`, `watch_settings`, `watch_lanes`, `schedules`, `watch_assignments`, `fairness_ledger`, `fairness_events`, `storage_uploads`, `chat_messages`, `charter_periods` (B7 — client-RW charter pause windows), `crew_leave` (C3 — client-RW dated per-crew leave).
+### The 14 tables (backend.md §2)
+`vessels`, `profiles`, `crew_members`, `watch_settings`, `watch_lanes`, `schedules`, `watch_assignments`, `fairness_ledger`, `fairness_events`, `storage_uploads`, `chat_messages`, `charter_periods` (B7 — client-RW charter pause windows), `crew_leave` (C3 — client-RW dated per-crew leave), `lane_departments` (C4 — client-RW group→department junction, unique(vessel,dept) disjointness).
 
 ### The one critical engine seam — must be **identical** in fairness.md and schedule.md
 ```

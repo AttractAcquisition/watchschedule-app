@@ -158,13 +158,31 @@ create table watch_lanes (
   department  department,                       -- null when kind='solo'; set when kind='dept'
   label       text not null,                    -- 'Watch' (solo) or 'Deck' / 'Interior' etc.
   active      boolean not null default true,    -- false = retired (kept for fairness history, never scheduled)
-  created_at  timestamptz not null default now(),
-  unique(vessel_id, kind, department)
+  created_at  timestamptz not null default now()
+  -- C4: the one-department-per-lane unique(vessel_id, kind, department) was dropped
+  -- (a lane may now span a GROUP of departments); disjointness lives in lane_departments.
 );
 create index on watch_lanes(vessel_id);
 create index on watch_lanes(vessel_id, active);
+
+-- lane_departments (C4 — Watch Groups) — a lane's department SET. A "group" is a
+-- lane spanning 1+ departments, pooling their crew into one rotation. Groups-of-one
+-- (one row per dept lane) == today's single-department behaviour (additive; existing
+-- vessels backfilled to one row each). unique(vessel_id, department) enforces
+-- DISJOINTNESS (a department in at most one lane). Only ACTIVE lanes hold rows
+-- (retiring a lane frees its departments for re-grouping). Client-RW config.
+create table lane_departments (
+  id          uuid primary key default gen_random_uuid(),
+  vessel_id   uuid not null references vessels(id) on delete cascade,
+  lane_id     uuid not null references watch_lanes(id) on delete cascade,
+  department  department not null,
+  created_at  timestamptz not null default now(),
+  constraint lane_departments_disjoint unique (vessel_id, department)
+);
+create index on lane_departments(vessel_id);
+create index on lane_departments(lane_id);
 ```
-> Solo -> exactly one lane (`kind='solo'`). Dual -> two `dept` lanes. Triple -> three `dept` lanes. `generate-schedule` and `seed-fairness` operate per lane, on **`active=true` lanes only**. Retiring a department sets `active=false` (its `fairness_ledger`/`fairness_events` are retained — never deleted); re-adding it re-activates the existing lane (an UPDATE on the `unique(vessel_id, kind, department)` row, so no duplicate) so ledger keys stay stable. See schedule.md §3.
+> Solo -> one `kind='solo'` lane. Dual/Triple -> 1..N `dept` lanes; each lane covers a **group** (1+ departments, from `lane_departments`) and pools their crew. `generate-schedule` and `seed-fairness` operate per lane, on **`active=true` lanes only**, assembling each lane's pool from its department set. **C4 regroup-reset:** the form reconciles desired groups (department-sets) against active lanes — an unchanged set carries its lane + ledger; a changed/new set is a NEW lane (fresh ledger = even at formation, honest on the post-C2 engine); an active lane no longer desired is retired (`active=false`) and its `lane_departments` rows deleted (freeing its departments). See schedule.md §3.
 
 **`schedules`** — a generated schedule run (a versioned container).
 ```sql
@@ -389,6 +407,13 @@ create policy "charter_rw_own_vessel" on charter_periods
 -- crew_leave (C3) — also CLIENT-RW config input (the captain books/cancels leave):
 alter table crew_leave enable row level security;
 create policy "crew_leave_rw_own_vessel" on crew_leave
+  for all using (vessel_id = current_vessel_id())
+  with check (vessel_id = current_vessel_id());
+
+-- lane_departments (C4) — CLIENT-RW config (the captain groups departments into lanes);
+-- unique(vessel_id, department) enforces disjointness:
+alter table lane_departments enable row level security;
+create policy "lane_departments_rw_own_vessel" on lane_departments
   for all using (vessel_id = current_vessel_id())
   with check (vessel_id = current_vessel_id());
 ```

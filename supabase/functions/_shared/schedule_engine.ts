@@ -19,6 +19,7 @@ export interface LaneRow {
   kind: 'solo' | 'dept'
   department: string | null
   active: boolean
+  departments?: string[] // C4 — the group's department SET (a lane may span 1+ depts). Defaults to [department] (groups-of-one).
 }
 // B6 — weekend coverage shape. per_day = one person per day (default; today's
 // behaviour). sat_sun_block = one person covers Sat+Sun. fri_sat_sun_block = one
@@ -67,10 +68,16 @@ export interface GenPlan {
 const clampHorizon = (w: number) => Math.max(1, Math.min(13, Math.trunc(w)))
 
 // schedule.md §6 — eligible pool for a lane (ineligible crew excluded here).
+// C4 — a dept lane pools crew from its department SET (a group of 1+ departments).
+// groups-of-one (departments == [department]) reduce to the original single-dept
+// filter exactly, so existing vessels are byte-identical. Pure pool-MEMBERSHIP — the
+// post-C2 scoring is indifferent to whether the pool is one department or several.
 function eligiblePool(lane: LaneRow, crew: Crew[]): string[] {
   const base = crew.filter((c) => c.eligible)
-  const inLane = lane.kind === 'solo' ? base : base.filter((c) => c.department === lane.department)
-  return inLane.map((c) => c.id).sort() // stable order
+  if (lane.kind === 'solo') return base.map((c) => c.id).sort()
+  const depts = lane.departments && lane.departments.length ? lane.departments : lane.department ? [lane.department] : []
+  const set = new Set(depts)
+  return base.filter((c) => c.department !== null && set.has(c.department)).map((c) => c.id).sort()
 }
 
 // A lane rotation is "completely flat" when no candidate has yet stood that

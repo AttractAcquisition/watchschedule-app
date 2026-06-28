@@ -97,8 +97,14 @@ Deno.serve(async (req) => {
     // --- inputs for matching + lane mapping ---
     const { data: lanes } = await admin.from('watch_lanes').select('id,kind,department,active').eq('vessel_id', vesselId)
     const activeLanes = (lanes ?? []).filter((l) => l.active)
-    const laneByDept = new Map<string, string>() // department -> lane_id
-    for (const l of activeLanes) if (l.department) laneByDept.set(l.department, l.id)
+    // C4 — a lane spans a department SET (group). Map EACH department in a group to
+    // its lane, and attach the dept-set to each lane. Falls back to [department].
+    const { data: laneDeptRows } = await admin.from('lane_departments').select('lane_id,department').eq('vessel_id', vesselId)
+    const deptsByLane = new Map<string, string[]>()
+    for (const r of laneDeptRows ?? []) { const a = deptsByLane.get(r.lane_id) ?? []; a.push(r.department); deptsByLane.set(r.lane_id, a) }
+    const laneDepts = (l: { id: string; department: string | null }) => deptsByLane.get(l.id) ?? (l.department ? [l.department] : [])
+    const laneByDept = new Map<string, string>() // department -> lane_id (each dept in a group -> the group's lane)
+    for (const l of activeLanes) for (const d of laneDepts(l)) laneByDept.set(d, l.id)
     const { data: crewRows } = await admin.from('crew_members').select('id,full_name,department,eligible,available_from').eq('vessel_id', vesselId)
     const crew = (crewRows ?? []) as { id: string; full_name: string; department: string; eligible: boolean; available_from: string }[]
 
@@ -161,7 +167,8 @@ Deno.serve(async (req) => {
     const nowISO = new Date().toISOString()
     for (const lane of activeLanes) {
       const laneMap = seed.get(lane.id) ?? new Map<string, Agg>()
-      const pool = crew.filter((c) => c.eligible && c.department === lane.department)
+      const laneSet = new Set(laneDepts(lane)) // C4 — group's department set
+      const pool = crew.filter((c) => c.eligible && laneSet.has(c.department))
       // entries for scoring: every pool member (seeded -> counts, else zero)
       const entries: LedgerEntry[] = pool.map((c) => {
         const o = oppFor(lane.id, c.available_from)
