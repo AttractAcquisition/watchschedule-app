@@ -84,6 +84,54 @@ export type Database = {
           },
         ]
       }
+      crew_leave: {
+        Row: {
+          created_at: string
+          crew_member_id: string
+          end_date: string
+          id: string
+          label: string | null
+          start_date: string
+          status: Database["public"]["Enums"]["charter_status"]
+          vessel_id: string
+        }
+        Insert: {
+          created_at?: string
+          crew_member_id: string
+          end_date: string
+          id?: string
+          label?: string | null
+          start_date: string
+          status?: Database["public"]["Enums"]["charter_status"]
+          vessel_id: string
+        }
+        Update: {
+          created_at?: string
+          crew_member_id?: string
+          end_date?: string
+          id?: string
+          label?: string | null
+          start_date?: string
+          status?: Database["public"]["Enums"]["charter_status"]
+          vessel_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "crew_leave_crew_member_id_fkey"
+            columns: ["crew_member_id"]
+            isOneToOne: false
+            referencedRelation: "crew_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "crew_leave_vessel_id_fkey"
+            columns: ["vessel_id"]
+            isOneToOne: false
+            referencedRelation: "vessels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       crew_members: {
         Row: {
           available_from: string

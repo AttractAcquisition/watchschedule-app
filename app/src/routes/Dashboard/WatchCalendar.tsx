@@ -23,6 +23,14 @@ function charterFor(data: DashboardData, dateStr: string) {
   return data.charters.find((c) => dateStr >= c.start_date && dateStr <= c.end_date) ?? null
 }
 
+// C3 — crew on booked leave on a date (distinct from charter-paused and from a gap).
+function leaveOn(data: DashboardData, dateStr: string): string[] {
+  return data.leave
+    .filter((l) => dateStr >= l.start_date && dateStr <= l.end_date)
+    .map((l) => data.crewById.get(l.crew_member_id)?.full_name)
+    .filter((n): n is string => !!n)
+}
+
 function Cell({ data, laneId, date, scheduled, compact }: { data: DashboardData; laneId: string; date: Date; scheduled: Set<string>; compact?: boolean }) {
   const ds = fmt(date)
   const charter = charterFor(data, ds)
@@ -121,6 +129,11 @@ export function WatchCalendar({ data }: { data: DashboardData }) {
                   <th key={fmt(d)} className={`px-ws-2 py-ws-1 text-center font-mono text-ws-xs ${isToday(d) ? 'text-ws-gold' : 'text-ws-text-muted'}`}>
                     <div>{format(d, 'EEE')}</div>
                     <div className="text-ws-text-faint">{format(d, 'd')}</div>
+                    {leaveOn(data, fmt(d)).length > 0 && (
+                      <div className="mt-ws-1 truncate font-normal normal-case text-ws-seagreen" title={`On leave: ${leaveOn(data, fmt(d)).join(', ')}`}>
+                        🌙 {leaveOn(data, fmt(d)).length}
+                      </div>
+                    )}
                   </th>
                 ))}
               </tr>
@@ -192,6 +205,7 @@ function Legend() {
       <span className="flex items-center gap-ws-2"><span className="inline-block h-3 w-3 rounded-ws-sm bg-ws-navy" /> Weekend (separate rotation)</span>
       <span className="flex items-center gap-ws-2"><span className="font-mono text-ws-alert">⚠</span> Gap — no eligible crew</span>
       <span className="flex items-center gap-ws-2"><span className="font-mono italic text-ws-text-muted">Paused</span> Charter (rotation resumes after)</span>
+      <span className="flex items-center gap-ws-2"><span className="font-mono text-ws-seagreen">🌙</span> On leave (per-crew; standing preserved)</span>
     </div>
   )
 }

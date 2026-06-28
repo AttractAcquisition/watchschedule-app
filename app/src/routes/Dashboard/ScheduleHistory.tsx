@@ -50,7 +50,7 @@ export function ScheduleHistoryButton({ data }: { data: DashboardData }) {
     const laneById = new Map((allLanes ?? []).map((l) => [l.id, l]))
     const laneIds = [...new Set(histAssignments.map((a) => a.lane_id))]
     const lanes = laneIds.map((id) => laneById.get(id)).filter((l): l is Lane => !!l).sort((a, b) => a.label.localeCompare(b.label))
-    return { schedule: { id: selected.id, start_date: selected.start_date, end_date: selected.end_date, horizon_weeks: selected.horizon_weeks, generated_at: selected.generated_at }, assignments: histAssignments, ledger: [], crew: data.crew, lanes, crewById: data.crewById, charters: [] }
+    return { schedule: { id: selected.id, start_date: selected.start_date, end_date: selected.end_date, horizon_weeks: selected.horizon_weeks, generated_at: selected.generated_at }, assignments: histAssignments, ledger: [], crew: data.crew, lanes, crewById: data.crewById, charters: [], leave: [] }
   }, [selected, histAssignments, allLanes, data.crew, data.crewById])
 
   return (

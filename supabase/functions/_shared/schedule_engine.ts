@@ -86,13 +86,12 @@ function rotationFlat(led: Ledger, pool: string[], dayType: DayType): boolean {
 // "an opportunity available for" (the off-by-one guard). It increments for ALL
 // available crew (not just the one assigned), which is exactly what keeps the
 // denominator EQUAL across equal-availability crew → graceful degradation.
-function bumpOpportunities(led: Ledger, poolIds: string[], avail: Map<string, string>, d: string): void {
+function bumpOpportunities(led: Ledger, poolIds: string[], isAvailable: (id: string, d: string) => boolean, d: string): void {
   const wd = isoWeekday(d)
   const weekend = wd >= 6
   const friday = wd === 5
   for (const id of poolIds) {
-    const af = avail.get(id)
-    if (af !== undefined && af > d) continue // not yet available on this date
+    if (!isAvailable(id, d)) continue // not joined yet (C2) OR on leave (C3) -> not an opportunity for them
     const e = led[id] ?? (led[id] = zeroEntry(id))
     if (weekend) e.weekend_opportunities += 1
     else { e.weekday_opportunities += 1; if (friday) e.friday_opportunities += 1 }
@@ -105,6 +104,29 @@ export interface CharterRange {
   end: string
 }
 
+// C3 — a per-crew leave window. Inclusive [start, end]. Leave is Charter Mode
+// scoped to ONE crew member: their leave dates are not opportunities and not
+// candidacy for them (standing preserved); the watch goes to an available crew.
+export interface LeaveRange {
+  crew_id: string
+  start: string
+  end: string
+}
+
+// C3 — the single availability predicate combining C2's available_from with C3's
+// leave: a crew member is available on date `d` iff they have joined (available_from
+// <= d) AND are not on booked leave covering `d`. Used IDENTICALLY by the run,
+// replay, and (conceptually) seed, so the opportunity denominator and candidacy
+// agree everywhere. With NO leave this reduces exactly to the C2 available_from
+// check → C2 behaviour byte-identical (freeze-safe).
+export function makeAvailability(crew: Crew[], leave: LeaveRange[]): (id: string, d: string) => boolean {
+  const availMap = new Map(crew.map((c) => [c.id, c.available_from]))
+  const leaveByCrew = new Map<string, LeaveRange[]>()
+  for (const l of leave) { const arr = leaveByCrew.get(l.crew_id) ?? []; arr.push(l); leaveByCrew.set(l.crew_id, arr) }
+  return (id: string, d: string) =>
+    (availMap.get(id) ?? '') <= d && !(leaveByCrew.get(id) ?? []).some((l) => d >= l.start && d <= l.end)
+}
+
 export interface PlanInput {
   startDate: string
   settings: ScheduleSettings
@@ -112,6 +134,7 @@ export interface PlanInput {
   lanes: LaneRow[] // active + retired; only active are scheduled
   baseLedgers: Record<string, Ledger> // seeded / replayed-past base, per lane
   charters?: CharterRange[] // B7 — booked charter windows to skip (default none)
+  leave?: LeaveRange[] // C3 — booked per-crew leave (default none)
 }
 
 // The generation loop (schedule.md §5). Chronological ascending — load-bearing
@@ -124,7 +147,7 @@ export function planSchedule(input: PlanInput): GenPlan {
 
   const poolByLane = new Map<string, string[]>()
   for (const lane of activeLanes) poolByLane.set(lane.id, eligiblePool(lane, input.crew))
-  const availMap = new Map(input.crew.map((c) => [c.id, c.available_from])) // C2 — per-crew available_from
+  const isAvailable = makeAvailability(input.crew, input.leave ?? []) // C2 available_from + C3 leave
 
   // Clone the base ledgers so the function stays pure (no input mutation).
   const ledgers: Record<string, Ledger> = {}
@@ -185,12 +208,13 @@ export function planSchedule(input: PlanInput): GenPlan {
       const led = ledgers[lane.id]
 
       const days = blockDaysFor(date)
-      // C2 — count an opportunity for every available crew on every scheduled block
-      // day, BEFORE selection, so the cost rate includes current opportunities.
-      for (const d of days) bumpOpportunities(led, pool, availMap, d)
-      // Step-A (C2) — only crew available on/before the lead date are candidates
-      // (guarantees opp >= 1; a not-yet-joined crew is never scheduled before arrival).
-      const availPool = pool.filter((id) => (availMap.get(id) ?? '') <= date)
+      // C2/C3 — count an opportunity for every AVAILABLE crew on every scheduled
+      // block day (available_from reached AND not on leave), BEFORE selection.
+      for (const d of days) bumpOpportunities(led, pool, isAvailable, d)
+      // Step-A — candidates must be available on EVERY day of the block (joined, and
+      // not on leave) — so a leave that splits a block excludes that crew (the
+      // non-leave remainder goes to someone else). Guarantees opp >= 1.
+      const availPool = pool.filter((id) => days.every((d) => isAvailable(id, d)))
       const laneSel: Lane = { id: lane.id, kind: lane.kind, department: lane.department, pool: availPool }
 
       // candidate must be free on every day of the block
@@ -260,7 +284,7 @@ export function replayLedgers(
   priorAssignments: PlannedAssignment[],
   seed: Record<string, Ledger> = {},
   poolByLane: Map<string, string[]> = new Map(),
-  availMap: Map<string, string> = new Map(),
+  isAvailable: (id: string, d: string) => boolean = () => true,
 ): Record<string, Ledger> {
   const ledgers: Record<string, Ledger> = {}
   for (const laneId of activeLaneIds) {
@@ -273,7 +297,7 @@ export function replayLedgers(
     if (!ledgers[a.lane_id]) continue // lane no longer active
     // opportunity for every available crew on this historical date (one assignment
     // per lane per date == one opportunity), then the watch for the one who stood.
-    bumpOpportunities(ledgers[a.lane_id], poolByLane.get(a.lane_id) ?? [], availMap, a.watch_date)
+    bumpOpportunities(ledgers[a.lane_id], poolByLane.get(a.lane_id) ?? [], isAvailable, a.watch_date)
     const laneSel: Lane = { id: a.lane_id, kind: 'solo', department: null, pool: [] }
     updateLedger(laneSel, a.crew_id, a.watch_date, a.day_type, a.is_friday, ledgers[a.lane_id])
   }

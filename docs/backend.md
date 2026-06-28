@@ -300,6 +300,26 @@ create table charter_periods (
   constraint charter_dates_ordered check (end_date >= start_date)
 );
 create index on charter_periods(vessel_id);
+
+-- crew_leave (C3) — DATED per-crew leave = Charter Mode per crew member. Booked
+-- leave dates are removed from THAT crew member's opportunity denominator (standing
+-- preserved — neither for nor against them) and they aren't a candidate then; the
+-- watch goes to an available crew member. CONFIGURATION input (client-RW, vessel-
+-- scoped). Reuses charter_status ('booked' affects generation; 'cancelled' retained
+-- but ignored). Distinct from crew_members.eligible (blanket, all-dates toggle).
+create table crew_leave (
+  id              uuid primary key default gen_random_uuid(),
+  vessel_id       uuid not null references vessels(id) on delete cascade,
+  crew_member_id  uuid not null references crew_members(id) on delete cascade,
+  start_date      date not null,
+  end_date        date not null,
+  label           text,
+  status          charter_status not null default 'booked',
+  created_at      timestamptz not null default now(),
+  constraint leave_dates_ordered check (end_date >= start_date)
+);
+create index on crew_leave(vessel_id);
+create index on crew_leave(crew_member_id);
 ```
 
 ### 2.3 `updated_at` trigger
@@ -363,6 +383,12 @@ create policy "crew_rw_own_vessel" on crew_members
 -- charters) — same client-RW policy as crew_members, NOT SELECT-only:
 alter table charter_periods enable row level security;
 create policy "charter_rw_own_vessel" on charter_periods
+  for all using (vessel_id = current_vessel_id())
+  with check (vessel_id = current_vessel_id());
+
+-- crew_leave (C3) — also CLIENT-RW config input (the captain books/cancels leave):
+alter table crew_leave enable row level security;
+create policy "crew_leave_rw_own_vessel" on crew_leave
   for all using (vessel_id = current_vessel_id())
   with check (vessel_id = current_vessel_id());
 ```

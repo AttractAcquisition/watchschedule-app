@@ -7,7 +7,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { handlePreflight, json } from '../_shared/cors.ts'
 import {
-  planSchedule, replayLedgers, type Crew, type LaneRow, type PlannedAssignment,
+  planSchedule, replayLedgers, makeAvailability, type Crew, type LaneRow, type LeaveRange, type PlannedAssignment,
 } from '../_shared/schedule_engine.ts'
 import { type Ledger, type LedgerEntry } from '../_shared/fairness_engine.ts'
 
@@ -86,10 +86,15 @@ Deno.serve(async (req) => {
       ;(seed[r.lane_id] ??= {})[r.crew_id] = entry
     }
 
-    // C2 — pools + available_from so replay tallies OPPORTUNITIES for the replayed
-    // history consistently with the run (same bumpOpportunities). poolByLane mirrors
-    // schedule_engine.eligiblePool (eligible crew in the lane).
-    const availMap = new Map(crew.map((c) => [c.id, c.available_from]))
+    // C3 — booked per-crew leave (cancelled leave is retained but ignored).
+    const { data: leaveRows } = await admin
+      .from('crew_leave').select('crew_member_id,start_date,end_date').eq('vessel_id', vesselId).eq('status', 'booked')
+    const leave: LeaveRange[] = (leaveRows ?? []).map((l) => ({ crew_id: l.crew_member_id, start: l.start_date, end: l.end_date }))
+
+    // C2/C3 — pools + the availability predicate (available_from AND not-on-leave) so
+    // replay tallies OPPORTUNITIES consistently with the run (same bumpOpportunities,
+    // same makeAvailability). poolByLane mirrors schedule_engine.eligiblePool.
+    const isAvailable = makeAvailability(crew, leave)
     const poolByLane = new Map<string, string[]>()
     for (const l of activeLanes as LaneRow[]) {
       const base = crew.filter((c) => c.eligible)
@@ -100,7 +105,7 @@ Deno.serve(async (req) => {
     // base = SEED + replay(already-stood assignments < fromDate). Avoids double-
     // counting the replaced forward portion on regenerate.
     const keptPast = priorAssignments.filter((a) => a.watch_date < fromDate)
-    const baseLedgers = replayLedgers(activeLaneIds, keptPast, seed, poolByLane, availMap)
+    const baseLedgers = replayLedgers(activeLaneIds, keptPast, seed, poolByLane, isAvailable)
 
     // B7 — booked charter windows pause the rotation within their range (cancelled
     // charters are retained for history but do NOT affect generation).
@@ -121,6 +126,7 @@ Deno.serve(async (req) => {
       lanes: activeLanes as LaneRow[],
       baseLedgers,
       charters,
+      leave,
     })
 
     // --- persist (service-role) ---

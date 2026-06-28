@@ -14,6 +14,7 @@ export type LedgerRow = Pick<
 >
 export type Schedule = Pick<Database['public']['Tables']['schedules']['Row'], 'id' | 'start_date' | 'end_date' | 'horizon_weeks' | 'generated_at'>
 export type Charter = Pick<Database['public']['Tables']['charter_periods']['Row'], 'id' | 'start_date' | 'end_date' | 'label'>
+export type Leave = Pick<Database['public']['Tables']['crew_leave']['Row'], 'id' | 'crew_member_id' | 'start_date' | 'end_date'>
 
 export interface DashboardData {
   schedule: Schedule | null
@@ -23,6 +24,7 @@ export interface DashboardData {
   lanes: Lane[] // active only, ordered
   crewById: Map<string, Crew>
   charters: Charter[] // B7 — booked charter windows (Paused state on the calendar)
+  leave: Leave[] // C3 — booked per-crew leave (calendar "away" indicator)
 }
 
 export const dashboardKey = (vesselId: string | undefined) => ['dashboard', vesselId] as const
@@ -32,11 +34,12 @@ export function useDashboardData(vesselId: string | undefined) {
     queryKey: dashboardKey(vesselId),
     enabled: !!vesselId,
     queryFn: async (): Promise<DashboardData> => {
-      const [{ data: sched }, { data: crew }, { data: lanes }, { data: charters }] = await Promise.all([
+      const [{ data: sched }, { data: crew }, { data: lanes }, { data: charters }, { data: leave }] = await Promise.all([
         supabase.from('schedules').select('id,start_date,end_date,horizon_weeks,generated_at').eq('vessel_id', vesselId!).eq('is_current', true).maybeSingle(),
         supabase.from('crew_members').select('id,full_name,position,department,eligible,updated_at').eq('vessel_id', vesselId!).order('full_name'),
         supabase.from('watch_lanes').select('id,kind,department,label,active').eq('vessel_id', vesselId!).eq('active', true).order('label'),
         supabase.from('charter_periods').select('id,start_date,end_date,label').eq('vessel_id', vesselId!).eq('status', 'booked').order('start_date'),
+        supabase.from('crew_leave').select('id,crew_member_id,start_date,end_date').eq('vessel_id', vesselId!).eq('status', 'booked'),
       ])
 
       const [{ data: assignments }, { data: ledger }] = await Promise.all([
@@ -55,6 +58,7 @@ export function useDashboardData(vesselId: string | undefined) {
         lanes: (lanes ?? []) as Lane[],
         crewById: new Map(crewList.map((c) => [c.id, c])),
         charters: (charters ?? []) as Charter[],
+        leave: (leave ?? []) as Leave[],
       }
     },
     staleTime: 30_000,
