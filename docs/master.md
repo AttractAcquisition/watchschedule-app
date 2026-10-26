@@ -1,5 +1,7 @@
 > Rota V2 amendment (22 September 2026): [rota-v2.md](./rota-v2.md) supersedes older department limits, disjoint grouping, per-lane fairness and generation persistence described below.
 
+> Settings-application amendment (26 October 2026): a watch setting reaches the rota **only on the next generation**, so the client must never leave a saved setting looking ignored. `/settings` **"Save & regenerate" is a submit of `WatchSettingsForm`** — it persists through `save_watch_configuration` and calls `generate-schedule` only on success; a regenerate control that does not submit the live form is forbidden (it discards the pending edit and regenerates the old values). `/dashboard` carries **one unapplied-change banner** covering crew (`crew_members.updated_at`) and watch configuration (`watch_settings.updated_at`) against `schedules.generated_at`, dismissed **per source** via `vessels.crew_change_warning_dismissed_at` / `vessels.settings_change_warning_dismissed_at` (new column, migration `20261026010000`). See frontend.md §4.5 + §4.6 and backend.md §2 (`vessels`).
+
 <!-- WatchSchedule spec set — v2 (cross-referenced & seam-verified). Document 6 of 6: master orchestrator. READ THIS FIRST. See §0.1 for the verified cross-document seam index. -->
 # master.md — WatchSchedule Build Orchestrator
 
@@ -197,7 +199,7 @@ Each phase is a prompt you can hand to Claude Code. Build in order. **Do not sta
 **Load:** frontend.md (4.6), backend.md (crew_members, billing portal).
 **Build:**
 - CrewManager: crew CRUD; the "not eligible for watch" toggle + reason; "changes apply on regenerate" messaging.
-- The **same `WatchSettingsForm`** from Phase 5; optional "Save & regenerate".
+- The **same `WatchSettingsForm`** from Phase 5, owning **both** submits — "Save settings" and "Save & regenerate" (save first, generate only on success), so neither can run on unsaved form state.
 - Subscription: current tier + "Manage billing" (`create-billing-portal-session`) + sign out.
 **Verify:** CRUD persists and is vessel-scoped; eligibility toggle removes a member from the next generation's pool; settings edits persist; billing portal opens; the settings form is literally the same component as onboarding Step 2.
 

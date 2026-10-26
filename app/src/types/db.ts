@@ -695,6 +695,7 @@ export type Database = {
           owner_id: string
           rota_revision: number
           schedule_coverage_warning_dismissed_at: string | null
+          settings_change_warning_dismissed_at: string | null
           updated_at: string
           watch_settings_reconciliation_dismissed_at: string | null
         }
@@ -708,6 +709,7 @@ export type Database = {
           owner_id: string
           rota_revision?: number
           schedule_coverage_warning_dismissed_at?: string | null
+          settings_change_warning_dismissed_at?: string | null
           updated_at?: string
           watch_settings_reconciliation_dismissed_at?: string | null
         }
@@ -721,6 +723,7 @@ export type Database = {
           owner_id?: string
           rota_revision?: number
           schedule_coverage_warning_dismissed_at?: string | null
+          settings_change_warning_dismissed_at?: string | null
           updated_at?: string
           watch_settings_reconciliation_dismissed_at?: string | null
         }

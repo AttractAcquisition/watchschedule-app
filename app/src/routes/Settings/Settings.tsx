@@ -170,12 +170,16 @@ export default function Settings() {
         <section className="rounded-ws-md border border-ws-line bg-ws-steel p-ws-5 shadow-ws-md">
           <p className="ws-eyebrow">— Watch settings</p>
           <h2 className="mt-ws-1 mb-ws-4 font-display text-ws-md font-semibold text-ws-offwhite">Watch configuration</h2>
-          <WatchSettingsForm submitLabel="Save settings" onSaved={() => { setSavedSettings(true); queryClient.invalidateQueries({ queryKey: ['watch_settings_tier', vesselId] }) }} />
+          <WatchSettingsForm
+            submitLabel="Save settings"
+            onSaved={() => { setSavedSettings(true); queryClient.invalidateQueries({ queryKey: ['watch_settings_tier', vesselId] }) }}
+            onSaveAndRegenerate={regenerate}
+          />
           {savedSettings && (
             <div className="mt-ws-4 flex flex-wrap items-center gap-ws-3 border-t border-ws-line pt-ws-4">
               <p className="text-ws-sm text-ws-text-muted">Settings saved. Regenerate to apply them to the schedule.</p>
-              <button type="button" onClick={regenerate} disabled={regenerating} className="flex items-center gap-ws-2 rounded-ws-sm bg-ws-gold px-ws-4 py-ws-2 text-ws-sm font-semibold text-ws-text-on-gold transition-all hover:bg-ws-gold-bright disabled:bg-ws-steel-3 disabled:text-ws-text-faint">
-                {regenerating ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <RefreshCw className="h-4 w-4" strokeWidth={1.5} aria-hidden />} Save &amp; regenerate
+              <button type="button" onClick={regenerate} disabled={regenerating} className="flex items-center gap-ws-2 rounded-ws-sm border border-ws-gold px-ws-4 py-ws-2 text-ws-sm font-semibold text-ws-gold transition-all hover:bg-ws-gold-ghost disabled:border-ws-line disabled:text-ws-text-faint">
+                {regenerating ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <RefreshCw className="h-4 w-4" strokeWidth={1.5} aria-hidden />} Regenerate now
               </button>
             </div>
           )}

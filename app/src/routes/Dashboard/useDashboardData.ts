@@ -25,6 +25,9 @@ export interface DashboardData {
   crewById: Map<string, Crew>
   charters: Charter[] // B7 — booked charter windows (Paused state on the calendar)
   leave: Leave[] // C3 — booked per-crew leave (calendar "away" indicator)
+  // Any configuration save (lanes, horizon, weekend structure) touches this row,
+  // so it dates the configuration behind the current schedule.
+  settingsUpdatedAt: string | null
 }
 
 export const dashboardKey = (vesselId: string | undefined) => ['dashboard', vesselId] as const
@@ -40,10 +43,11 @@ export function useDashboardData(vesselId: string | undefined) {
         supabase.from('watch_lanes').select('id,kind,department,label,active').eq('vessel_id', vesselId!).order('position'),
         supabase.from('charter_periods').select('id,start_date,end_date,label').eq('vessel_id', vesselId!).eq('status', 'booked').order('start_date'),
         supabase.from('crew_leave').select('id,crew_member_id,start_date,end_date').eq('vessel_id', vesselId!).eq('status', 'booked'),
+        supabase.from('watch_settings').select('updated_at').eq('vessel_id', vesselId!).maybeSingle(),
       ])
 
       for (const result of inputs) if (result.error) throw result.error
-      const [{ data: sched }, { data: crew }, { data: lanes }, { data: charters }, { data: leave }] = inputs
+      const [{ data: sched }, { data: crew }, { data: lanes }, { data: charters }, { data: leave }, { data: settings }] = inputs
       const outputs = await Promise.all([
         sched
           ? supabase.from('watch_assignments').select('lane_id,crew_id,watch_date,day_type,is_friday').eq('schedule_id', sched.id).order('watch_date')
@@ -63,6 +67,7 @@ export function useDashboardData(vesselId: string | undefined) {
         crewById: new Map(crewList.map((c) => [c.id, c])),
         charters: (charters ?? []) as Charter[],
         leave: (leave ?? []) as Leave[],
+        settingsUpdatedAt: settings?.updated_at ?? null,
       }
     },
     staleTime: 30_000,

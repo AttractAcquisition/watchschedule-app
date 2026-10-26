@@ -1,9 +1,9 @@
 // Shared lane matrix for onboarding and settings. Saves atomically on the server.
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery } from '@tanstack/react-query'
-import { Loader2 } from 'lucide-react'
+import { Loader2, RefreshCw } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { queryClient } from '../../lib/queryClient'
 import { useAuth } from '../../auth/AuthGate'
@@ -12,9 +12,11 @@ import { DEPARTMENTS, type Department } from '../../lib/classifyDepartment'
 import { DEPT_LABEL, laneMaxForTier, makeWatchSettingsSchema, todayISO, WEEKEND_STRUCTURES, WEEKEND_STRUCTURE_LABEL, type Tier, type WatchSettingsValues as FormValues } from './watchSettings'
 
 const ANCHORS_HELP = 'Sets the initial rotation order before watch history exists. Once schedules have been generated, fairness takes over. Most vessels can leave this at default.'
-export interface WatchSettingsFormProps { onSaved?: () => void | Promise<void>; submitLabel?: string }
+// onSaveAndRegenerate renders a second submit that persists the form FIRST and
+// only then regenerates — settings edits must never reach the engine unsaved.
+export interface WatchSettingsFormProps { onSaved?: () => void | Promise<void>; submitLabel?: string; onSaveAndRegenerate?: () => Promise<void> }
 
-export default function WatchSettingsForm({ onSaved, submitLabel = 'Save settings' }: WatchSettingsFormProps) {
+export default function WatchSettingsForm({ onSaved, submitLabel = 'Save settings', onSaveAndRegenerate }: WatchSettingsFormProps) {
   const { profile } = useAuth()
   const tier = (profile?.product_tier ?? 'solo') as Tier
   const vesselId = profile?.vessel_id ?? undefined
@@ -25,6 +27,7 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [showHorizon, setShowHorizon] = useState(false)
   const [showWeekend, setShowWeekend] = useState(false)
+  const regenerateAfterSave = useRef(false)
   const [horizonSuggestion, setHorizonSuggestion] = useState<{ suggested_weeks: number; reason: string; confidence: string } | null>(null)
   const [suggestingHorizon, setSuggestingHorizon] = useState(false)
   const { data: configuration, isLoading, error: loadError } = useQuery({
@@ -65,6 +68,7 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
   }
   async function onSubmit(values: FormValues) {
     if (!vesselId) return
+    const alsoRegenerate = regenerateAfterSave.current
     setSaving(true); setSaveError(null); setSaved(false)
     try {
       const { lanes: pools, ...settings } = values
@@ -73,8 +77,9 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
       await Promise.all(['watch_configuration', 'watch_settings', 'lane_groups', 'dashboard', 'settings_reconcile'].map(key => queryClient.invalidateQueries({ queryKey: [key, vesselId] })))
       setSaved(true)
       await onSaved?.()
+      if (alsoRegenerate && onSaveAndRegenerate) await onSaveAndRegenerate()
     } catch (err) { setSaveError(err && typeof err === 'object' && 'message' in err ? String(err.message) : 'Could not save settings.') }
-    finally { setSaving(false) }
+    finally { regenerateAfterSave.current = false; setSaving(false) }
   }
   async function suggestHorizon() {
     setSuggestingHorizon(true)
@@ -89,7 +94,7 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
   if (isLoading) return <p className="text-ws-sm text-ws-text-muted">Loading settings…</p>
   if (loadError) return <p role="alert" className="text-ws-sm text-ws-alert">Could not load watch configuration. Please refresh.</p>
   return (
-    <form onSubmit={handleSubmit(onSubmit)} onChange={() => setSaved(false)} className="space-y-ws-6">
+    <form onSubmit={handleSubmit(onSubmit, () => { regenerateAfterSave.current = false })} onChange={() => setSaved(false)} className="space-y-ws-6">
       <div className="space-y-ws-3">
         <div className="flex items-center justify-between gap-ws-3">
           <div>
@@ -193,15 +198,30 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
       {saveError && <p role="alert" className="text-ws-sm text-ws-alert">{saveError}</p>}
       {saved && !saving && <p role="status" className="text-ws-sm text-ws-ok">Settings saved.</p>}
 
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-end gap-ws-3">
         <button
           type="submit"
           disabled={saving}
-          className="flex items-center gap-ws-2 rounded-ws-sm bg-ws-gold px-ws-5 py-ws-2 font-ui font-semibold text-ws-text-on-gold transition-all hover:bg-ws-gold-bright disabled:bg-ws-steel-3 disabled:text-ws-text-faint"
+          className={onSaveAndRegenerate
+            ? 'flex items-center gap-ws-2 rounded-ws-sm border border-ws-gold px-ws-5 py-ws-2 font-ui font-semibold text-ws-gold transition-all hover:bg-ws-gold-ghost disabled:border-ws-line disabled:text-ws-text-faint'
+            : 'flex items-center gap-ws-2 rounded-ws-sm bg-ws-gold px-ws-5 py-ws-2 font-ui font-semibold text-ws-text-on-gold transition-all hover:bg-ws-gold-bright disabled:bg-ws-steel-3 disabled:text-ws-text-faint'}
         >
-          {saving && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+          {saving && !regenerateAfterSave.current && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
           {submitLabel}
         </button>
+        {onSaveAndRegenerate && (
+          <button
+            type="submit"
+            onClick={() => { regenerateAfterSave.current = true }}
+            disabled={saving}
+            className="flex items-center gap-ws-2 rounded-ws-sm bg-ws-gold px-ws-5 py-ws-2 font-ui font-semibold text-ws-text-on-gold transition-all hover:bg-ws-gold-bright disabled:bg-ws-steel-3 disabled:text-ws-text-faint"
+          >
+            {saving && regenerateAfterSave.current
+              ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              : <RefreshCw className="h-4 w-4" strokeWidth={1.5} aria-hidden />}
+            Save &amp; regenerate
+          </button>
+        )}
       </div>
     </form>
   )

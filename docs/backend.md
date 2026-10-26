@@ -69,6 +69,7 @@ create table vessels (
   name          text not null default 'My Vessel',
   length_m      numeric,                      -- e.g. 72
   crew_change_warning_dismissed_at timestamptz, -- dashboard prompt acknowledgement
+  settings_change_warning_dismissed_at timestamptz, -- dashboard unapplied-configuration prompt acknowledgement
   schedule_coverage_warning_dismissed_at timestamptz, -- schedule coverage prompt acknowledgement
   watch_settings_reconciliation_dismissed_at timestamptz, -- settings prompt acknowledgement
   created_at    timestamptz not null default now(),
