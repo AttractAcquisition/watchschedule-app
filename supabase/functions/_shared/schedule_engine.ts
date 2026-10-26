@@ -34,6 +34,11 @@ export interface ScheduleSettings {
   weekday_rotation_anchor: number
   weekend_rotation_anchor: number
   weekend_structure?: WeekendStructure // default 'per_day'
+  // Generation window (schedule.md §5.1). 'weeks' uses horizon_weeks; the other
+  // two carry a concrete window, capped at 91 days inclusive.
+  generation_mode?: 'weeks' | 'month' | 'range'
+  generation_start_date?: string | null
+  generation_end_date?: string | null
 }
 
 export interface PlannedAssignment {

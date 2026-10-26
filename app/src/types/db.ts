@@ -838,6 +838,9 @@ export type Database = {
       watch_settings: {
         Row: {
           created_at: string
+          generation_end_date: string | null
+          generation_mode: Database["public"]["Enums"]["generation_mode"]
+          generation_start_date: string | null
           horizon_weeks: number
           include_weekends: boolean
           schedule_start_date: string
@@ -851,6 +854,9 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          generation_end_date?: string | null
+          generation_mode?: Database["public"]["Enums"]["generation_mode"]
+          generation_start_date?: string | null
           horizon_weeks?: number
           include_weekends?: boolean
           schedule_start_date: string
@@ -864,6 +870,9 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          generation_end_date?: string | null
+          generation_mode?: Database["public"]["Enums"]["generation_mode"]
+          generation_start_date?: string | null
           horizon_weeks?: number
           include_weekends?: boolean
           schedule_start_date?: string
@@ -908,6 +917,7 @@ export type Database = {
     Enums: {
       charter_status: "booked" | "cancelled"
       day_type: "weekday" | "weekend"
+      generation_mode: "weeks" | "month" | "range"
       department: "deck" | "interior" | "engineering" | "officer"
       ineligibility_reason:
         | "leave"
@@ -1052,6 +1062,7 @@ export const Constants = {
     Enums: {
       charter_status: ["booked", "cancelled"],
       day_type: ["weekday", "weekend"],
+      generation_mode: ["weeks", "month", "range"],
       department: ["deck", "interior", "engineering", "officer"],
       ineligibility_reason: [
         "leave",

@@ -25,6 +25,40 @@ export function seedHistory(records: SeedRecord[], before: string) {
   return { opportunities, assignments }
 }
 const cmp = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0
+const dayDiff = (from: string, to: string) => Math.round((Date.parse(to + 'T00:00:00Z') - Date.parse(from + 'T00:00:00Z')) / 86400000)
+export const MAX_WINDOW_DAYS = 91
+// schedule.md §5.1 — one cap in every shape. An explicit endDate wins over
+// horizon_weeks; both are clamped here, so stored dates are never trusted.
+export function generationEnd(startDate: string, horizonWeeks: number, endDate?: string | null) {
+  const weeks = Math.max(1, Math.min(13, Math.trunc(horizonWeeks) || 1))
+  const capped = addDays(startDate, MAX_WINDOW_DAYS - 1)
+  const end = endDate ? (endDate < startDate ? startDate : endDate) : addDays(startDate, weeks * 7 - 1)
+  return end > capped ? capped : end
+}
+export const spanWeeks = (startDate: string, end: string) =>
+  Math.max(1, Math.min(13, Math.ceil((dayDiff(startDate, end) + 1) / 7)))
+
+export interface WindowSettings {
+  generation_mode?: 'weeks' | 'month' | 'range' | null
+  generation_start_date?: string | null
+  generation_end_date?: string | null
+  schedule_start_date: string
+}
+// schedule.md §5.1. firstRun = no schedule exists yet and this is not an
+// explicit regenerate, the only case that honours schedule_start_date. A month
+// or range is taken as given, except that a window already begun clamps to
+// today: no regeneration ever rewrites duty already stood. Starting in the
+// future is allowed — that is planning ahead, not an error.
+export function generationWindow(settings: WindowSettings, today: string, firstRun: boolean) {
+  if ((settings.generation_mode ?? 'weeks') === 'weeks') {
+    return { start: firstRun ? settings.schedule_start_date : today, endDate: null as string | null }
+  }
+  const from = settings.generation_start_date
+  const to = settings.generation_end_date
+  if (!from || !to) throw new Error('Set a start and end date for the generation window.')
+  if (to < today) throw new Error('That generation window has already passed. Pick one that ends today or later.')
+  return { start: from < today ? today : from, endDate: to }
+}
 export const laneLimit = (tier: string) => ({ solo: 1, dual: 2, triple: 3 })[tier] ?? 0
 
 export function validateLanes(lanes: RotaLane[], tier: string) {
@@ -85,11 +119,12 @@ export function globalScores(ledger: Ledger, ids: string[]) {
   }))
 }
 
-export function planGlobal(input: { startDate: string; settings: ScheduleSettings; lanes: RotaLane[]; crew: Crew[]; base: Ledger; leave?: LeaveRange[]; charters?: CharterRange[] }) {
+export function planGlobal(input: { startDate: string; settings: ScheduleSettings; lanes: RotaLane[]; crew: Crew[]; base: Ledger; leave?: LeaveRange[]; charters?: CharterRange[]; endDate?: string | null }) {
   const lanes = [...input.lanes].sort((a, b) => a.position - b.position || cmp(a.id, b.id))
   const ledger: Ledger = Object.fromEntries(Object.entries(input.base).map(([id, e]) => [id, { ...e }]))
-  const horizon = Math.max(1, Math.min(13, Math.trunc(input.settings.horizon_weeks)))
-  const end = addDays(input.startDate, horizon * 7 - 1)
+  const end = generationEnd(input.startDate, input.settings.horizon_weeks, input.endDate)
+  // Derived descriptor of the span for the schedules row; start/end are authoritative.
+  const horizon = spanWeeks(input.startDate, end)
   const available = makeAvailability(input.crew, input.leave ?? [])
   const pools = lanes.map(l => input.crew.filter(c => c.eligible && c.department && l.departments.includes(c.department)).map(c => c.id).sort(cmp))
   const participants = [...new Set(pools.flat())]

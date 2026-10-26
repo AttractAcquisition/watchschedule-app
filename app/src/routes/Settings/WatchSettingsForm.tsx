@@ -9,7 +9,12 @@ import { queryClient } from '../../lib/queryClient'
 import { useAuth } from '../../auth/AuthGate'
 import { InfoTooltip } from '../../components/ui/InfoTooltip'
 import { DEPARTMENTS, type Department } from '../../lib/classifyDepartment'
-import { DEPT_LABEL, laneMaxForTier, makeWatchSettingsSchema, todayISO, WEEKEND_STRUCTURES, WEEKEND_STRUCTURE_LABEL, type Tier, type WatchSettingsValues as FormValues } from './watchSettings'
+import { DEPT_LABEL, effectiveWindow, GENERATION_MODES, GENERATION_MODE_LABEL, laneMaxForTier, makeWatchSettingsSchema, monthBounds, monthOf, todayISO, WEEKEND_STRUCTURES, WEEKEND_STRUCTURE_LABEL, windowDays, type Tier, type WatchSettingsValues as FormValues } from './watchSettings'
+
+const DATE_INPUT = 'w-full rounded-ws-sm border border-ws-line bg-ws-steel-3 px-ws-3 py-ws-2 text-ws-text focus:border-ws-gold focus:outline-none'
+const prettyDate = (iso: string) => new Date(iso + 'T00:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
+const prettyMonth = (iso: string) => new Date(iso + 'T00:00:00Z').toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' })
+const addDaysISO = (iso: string, days: number) => new Date(Date.parse(iso + 'T00:00:00Z') + days * 86400000).toISOString().slice(0, 10)
 
 const ANCHORS_HELP = 'Sets the initial rotation order before watch history exists. Once schedules have been generated, fairness takes over. Most vessels can leave this at default.'
 // onSaveAndRegenerate renders a second submit that persists the form FIRST and
@@ -46,7 +51,7 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
   const schema = useMemo(() => makeWatchSettingsSchema(tier), [tier])
   const { register, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { lanes: [{ departments: [...DEPARTMENTS] }], horizon_weeks: 4, schedule_start_date: todayISO(), include_weekends: true, weekday_rotation_anchor: 0, weekend_rotation_anchor: 0, weekend_structure: 'per_day' },
+    defaultValues: { lanes: [{ departments: [...DEPARTMENTS] }], horizon_weeks: 4, schedule_start_date: todayISO(), include_weekends: true, weekday_rotation_anchor: 0, weekend_rotation_anchor: 0, weekend_structure: 'per_day', generation_mode: 'weeks', generation_start_date: '', generation_end_date: '' },
   })
   useEffect(() => {
     if (!configuration) return
@@ -58,10 +63,41 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
       horizon_weeks: s?.horizon_weeks ?? 4, schedule_start_date: s?.schedule_start_date ?? todayISO(),
       include_weekends: s?.include_weekends ?? true, weekday_rotation_anchor: s?.weekday_rotation_anchor ?? 0,
       weekend_rotation_anchor: s?.weekend_rotation_anchor ?? 0, weekend_structure: s?.weekend_structure ?? 'per_day',
+      generation_mode: s?.generation_mode ?? 'weeks',
+      generation_start_date: s?.generation_start_date ?? '', generation_end_date: s?.generation_end_date ?? '',
     })
   }, [configuration, reset])
   const lanes = watch('lanes')
   const includeWeekends = watch('include_weekends')
+  const mode = watch('generation_mode')
+  const windowStart = watch('generation_start_date')
+  const windowEnd = watch('generation_end_date')
+  const validWindow = mode !== 'weeks' && !!windowStart && !!windowEnd && windowEnd >= windowStart
+  // What a run would actually cover: a window already begun clamps to today.
+  const effective = validWindow ? effectiveWindow(windowStart, windowEnd) : null
+  const windowSummary = mode === 'weeks' ? `${watch('horizon_weeks')} weeks`
+    : !validWindow ? 'Not set'
+    : mode === 'month' ? prettyMonth(windowStart)
+    : `${prettyDate(windowStart).slice(5)} – ${prettyDate(windowEnd).slice(5)}`
+  const setWindow = (start: string, end: string) => {
+    setValue('generation_start_date', start, { shouldValidate: true, shouldDirty: true })
+    setValue('generation_end_date', end, { shouldValidate: true, shouldDirty: true })
+    setSaved(false)
+  }
+  function pickMode(next: FormValues['generation_mode']) {
+    setValue('generation_mode', next, { shouldValidate: true, shouldDirty: true })
+    setSaved(false)
+    if (next === 'weeks') return
+    // Seed a sensible window so the control is never empty on arrival.
+    const today = todayISO()
+    if (next === 'month') {
+      const month = windowStart && mode === 'range' ? monthOf(windowStart) : monthOf(today)
+      const bounds = monthBounds(month)
+      setWindow(bounds.start, bounds.end)
+    } else if (!windowStart || !windowEnd || windowEnd < windowStart) {
+      setWindow(today, addDaysISO(today, 27))
+    }
+  }
   const setLanes = (next: FormValues['lanes']) => { setValue('lanes', next, { shouldValidate: true, shouldDirty: true }); setSaved(false) }
   function toggleDept(index: number, dept: Department) {
     setLanes(lanes.map((l, i) => i !== index ? l : { ...l, departments: l.departments.includes(dept) ? l.departments.filter(d => d !== dept) : [...l.departments, dept] }))
@@ -71,7 +107,14 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
     const alsoRegenerate = regenerateAfterSave.current
     setSaving(true); setSaveError(null); setSaved(false)
     try {
-      const { lanes: pools, ...settings } = values
+      const { lanes: pools, ...rest } = values
+      // The window dates must be NULL in weeks mode (generation_window_shape).
+      const weeks = rest.generation_mode === 'weeks'
+      const settings = {
+        ...rest,
+        generation_start_date: weeks ? null : rest.generation_start_date,
+        generation_end_date: weeks ? null : rest.generation_end_date,
+      }
       const { error } = await supabase.rpc('save_watch_configuration', { p_settings: settings, p_lanes: pools })
       if (error) throw error
       await Promise.all(['watch_configuration', 'watch_settings', 'lane_groups', 'dashboard', 'settings_reconcile'].map(key => queryClient.invalidateQueries({ queryKey: [key, vesselId] })))
@@ -127,7 +170,7 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
       </div>
       <div className="grid gap-ws-3 sm:grid-cols-3">
         <button type="button" onClick={() => setShowHorizon((s) => !s)} aria-expanded={showHorizon} className="flex items-center justify-between rounded-ws-sm border border-ws-line-strong px-ws-3 py-ws-3 text-left text-ws-sm font-medium text-ws-text transition-colors hover:border-ws-gold hover:bg-ws-steel-3">
-          <span>Generation horizon</span><span className="font-mono text-ws-xs text-ws-text-faint">{showHorizon ? 'Hide' : `${watch('horizon_weeks')} weeks`}</span>
+          <span>Generation window</span><span className="font-mono text-ws-xs text-ws-text-faint">{showHorizon ? 'Hide' : windowSummary}</span>
         </button>
         <button type="button" onClick={() => setShowWeekend((s) => !s)} aria-expanded={showWeekend} className="flex items-center justify-between rounded-ws-sm border border-ws-line-strong px-ws-3 py-ws-3 text-left text-ws-sm font-medium text-ws-text transition-colors hover:border-ws-gold hover:bg-ws-steel-3">
           <span>Weekend settings</span><span className="font-mono text-ws-xs text-ws-text-faint">{showWeekend ? 'Hide' : includeWeekends ? 'On' : 'Off'}</span>
@@ -138,25 +181,75 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
       </div>
 
       {showHorizon && <div className="space-y-ws-4 rounded-ws-sm border border-ws-line bg-ws-steel-2 p-ws-4">
-        <div className="flex flex-wrap items-center justify-between gap-ws-3">
-          <div><p className="text-ws-sm font-medium text-ws-text">Generation horizon</p><p className="text-ws-xs text-ws-text-faint">Choose manually or ask the scheduler to compare 1–13 weeks.</p></div>
-          <button type="button" onClick={suggestHorizon} disabled={suggestingHorizon} className="rounded-ws-sm border border-ws-gold px-ws-3 py-ws-2 text-ws-xs font-medium text-ws-gold hover:bg-ws-gold-ghost disabled:opacity-60">{suggestingHorizon ? 'Calculating…' : 'Suggest fairest horizon'}</button>
-        </div>
-        {horizonSuggestion && <div className="rounded-ws-sm border border-ws-gold bg-ws-gold-ghost px-ws-3 py-ws-3 text-ws-sm text-ws-text"><span className="font-semibold text-ws-gold">Suggested: {horizonSuggestion.suggested_weeks} weeks.</span> {horizonSuggestion.reason} <button type="button" onClick={() => setValue('horizon_weeks', horizonSuggestion.suggested_weeks, { shouldValidate: true, shouldDirty: true })} className="ml-ws-2 text-ws-gold underline underline-offset-2">Use this</button></div>}
-        <div className="grid gap-ws-4 sm:grid-cols-2">
-        <div className="space-y-ws-2">
-          <label htmlFor="horizon" className="block text-ws-sm font-medium text-ws-text-muted">Generation horizon (weeks)</label>
-          <input id="horizon" type="number" min={1} max={13} {...register('horizon_weeks', { valueAsNumber: true })} className="w-full rounded-ws-sm border border-ws-line bg-ws-steel-3 px-ws-3 py-ws-2 text-ws-text focus:border-ws-gold focus:outline-none" />
-          <p className="font-mono text-ws-xs text-ws-text-faint">Max 13 weeks (~3 months).</p>
-          {errors.horizon_weeks && <p role="alert" className="text-ws-sm text-ws-alert">{errors.horizon_weeks.message}</p>}
-        </div>
-        <div className="space-y-ws-2">
-          <label htmlFor="start" className="block text-ws-sm font-medium text-ws-text-muted">Schedule start date</label>
-          <input id="start" type="date" {...register('schedule_start_date')} className="w-full rounded-ws-sm border border-ws-line bg-ws-steel-3 px-ws-3 py-ws-2 text-ws-text focus:border-ws-gold focus:outline-none" />
-          <p className="text-ws-xs text-ws-text-faint">For your first schedule. Regeneration always starts today.</p>
-          {errors.schedule_start_date && <p role="alert" className="text-ws-sm text-ws-alert">{errors.schedule_start_date.message}</p>}
-        </div>
-        </div>
+        <fieldset className="space-y-ws-2">
+          <legend className="block text-ws-sm font-medium text-ws-text">How much to generate</legend>
+          <div className="grid gap-ws-2 sm:grid-cols-3">
+            {GENERATION_MODES.map((m) => (
+              <label key={m} className={`flex items-center gap-ws-2 rounded-ws-sm border px-ws-3 py-ws-2 text-ws-sm text-ws-text ${mode === m ? 'border-ws-gold bg-ws-gold-ghost' : 'border-ws-line'}`}>
+                <input type="radio" name="generation_mode" value={m} checked={mode === m} onChange={() => pickMode(m)} className="h-4 w-4 accent-ws-gold" />
+                <span>{GENERATION_MODE_LABEL[m]}</span>
+              </label>
+            ))}
+          </div>
+          <p className="font-mono text-ws-xs text-ws-text-faint">Any shape, up to 91 days (~3 months).</p>
+        </fieldset>
+
+        {mode === 'weeks' && <>
+          <div className="flex flex-wrap items-center justify-between gap-ws-3 border-t border-ws-line pt-ws-4">
+            <div><p className="text-ws-sm font-medium text-ws-text">Generation horizon</p><p className="text-ws-xs text-ws-text-faint">Choose manually or ask the scheduler to compare 1–13 weeks.</p></div>
+            <button type="button" onClick={suggestHorizon} disabled={suggestingHorizon} className="rounded-ws-sm border border-ws-gold px-ws-3 py-ws-2 text-ws-xs font-medium text-ws-gold hover:bg-ws-gold-ghost disabled:opacity-60">{suggestingHorizon ? 'Calculating…' : 'Suggest fairest horizon'}</button>
+          </div>
+          {horizonSuggestion && <div className="rounded-ws-sm border border-ws-gold bg-ws-gold-ghost px-ws-3 py-ws-3 text-ws-sm text-ws-text"><span className="font-semibold text-ws-gold">Suggested: {horizonSuggestion.suggested_weeks} weeks.</span> {horizonSuggestion.reason} <button type="button" onClick={() => setValue('horizon_weeks', horizonSuggestion.suggested_weeks, { shouldValidate: true, shouldDirty: true })} className="ml-ws-2 text-ws-gold underline underline-offset-2">Use this</button></div>}
+          <div className="grid gap-ws-4 sm:grid-cols-2">
+            <div className="space-y-ws-2">
+              <label htmlFor="horizon" className="block text-ws-sm font-medium text-ws-text-muted">Generation horizon (weeks)</label>
+              <input id="horizon" type="number" min={1} max={13} {...register('horizon_weeks', { valueAsNumber: true })} className={DATE_INPUT} />
+              <p className="font-mono text-ws-xs text-ws-text-faint">Max 13 weeks (~3 months).</p>
+              {errors.horizon_weeks && <p role="alert" className="text-ws-sm text-ws-alert">{errors.horizon_weeks.message}</p>}
+            </div>
+            <div className="space-y-ws-2">
+              <label htmlFor="start" className="block text-ws-sm font-medium text-ws-text-muted">Schedule start date</label>
+              <input id="start" type="date" {...register('schedule_start_date')} className={DATE_INPUT} />
+              <p className="text-ws-xs text-ws-text-faint">For your first schedule. Regeneration always starts today.</p>
+              {errors.schedule_start_date && <p role="alert" className="text-ws-sm text-ws-alert">{errors.schedule_start_date.message}</p>}
+            </div>
+          </div>
+        </>}
+
+        {mode === 'month' && <div className="space-y-ws-2 border-t border-ws-line pt-ws-4">
+          <label htmlFor="gen-month" className="block text-ws-sm font-medium text-ws-text-muted">Month to generate</label>
+          <input
+            id="gen-month" type="month" className={`${DATE_INPUT} sm:max-w-xs`}
+            value={windowStart ? monthOf(windowStart) : ''}
+            onChange={(e) => { const m = e.target.value; if (!m) return; const b = monthBounds(m); setWindow(b.start, b.end) }}
+          />
+          <p className="text-ws-xs text-ws-text-faint">Covers the 1st to the last day of that month. A later month is fine — you can plan ahead.</p>
+        </div>}
+
+        {mode === 'range' && <div className="grid gap-ws-4 border-t border-ws-line pt-ws-4 sm:grid-cols-2">
+          <div className="space-y-ws-2">
+            <label htmlFor="gen-from" className="block text-ws-sm font-medium text-ws-text-muted">From</label>
+            <input id="gen-from" type="date" className={DATE_INPUT} value={windowStart} onChange={(e) => setWindow(e.target.value, windowEnd)} />
+          </div>
+          <div className="space-y-ws-2">
+            <label htmlFor="gen-to" className="block text-ws-sm font-medium text-ws-text-muted">To</label>
+            <input id="gen-to" type="date" className={DATE_INPUT} value={windowEnd} min={windowStart || undefined} onChange={(e) => setWindow(windowStart, e.target.value)} />
+          </div>
+        </div>}
+
+        {mode !== 'weeks' && <>
+          {(errors.generation_start_date || errors.generation_end_date) && (
+            <p role="alert" className="text-ws-sm text-ws-alert">{errors.generation_start_date?.message ?? errors.generation_end_date?.message}</p>
+          )}
+          {effective && windowDays(windowStart, windowEnd) <= 91 && (
+            <div className="rounded-ws-sm border border-ws-line bg-ws-steel-3 px-ws-3 py-ws-3 text-ws-sm text-ws-text">
+              <span className="font-semibold text-ws-gold">Generates {prettyDate(effective.start)} – {prettyDate(effective.end)}</span>
+              <span className="font-mono text-ws-xs text-ws-text-faint"> · {windowDays(effective.start, effective.end)} days</span>
+              {effective.start !== windowStart && <p className="mt-ws-1 text-ws-xs text-ws-text-muted">Starts today because {prettyDate(windowStart)} has passed — watches already stood are never rewritten.</p>}
+              {effective.start > todayISO() && <p className="mt-ws-1 text-ws-xs text-ws-text-muted">Starts in the future. Your current rota stays on the dashboard until then.</p>}
+            </div>
+          )}
+        </>}
       </div>}
 
       {showWeekend && <div className="space-y-ws-3 rounded-ws-sm border border-ws-line bg-ws-steel-2 p-ws-4">

@@ -8,8 +8,8 @@
 import { useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import {
-  addDays, addMonths, eachDayOfInterval, endOfMonth, format, isFriday,
-  isToday, isWeekend, parseISO, startOfMonth, startOfWeek,
+  addDays, addMonths, differenceInCalendarDays, eachDayOfInterval, endOfMonth,
+  format, isFriday, isToday, isWeekend, parseISO, startOfMonth, startOfWeek,
 } from 'date-fns'
 import { shortName } from './fairness'
 import type { DashboardData } from './useDashboardData'
@@ -69,8 +69,8 @@ export function WatchCalendar({
 
   const scheduled = useMemo(() => {
     const snapshot = data.schedule?.rota_snapshot as { scheduled_dates?: string[] } | null
-    return new Set(snapshot?.scheduled_dates ?? data.assignments.map(a => a.watch_date))
-  }, [data.assignments, data.schedule])
+    return new Set([...(snapshot?.scheduled_dates ?? data.assignments.map(a => a.watch_date)), ...data.interimScheduledDates])
+  }, [data.assignments, data.schedule, data.interimScheduledDates])
   const lanes = data.lanes
 
   // The Today control must always show the real current week/month. An expired
@@ -88,11 +88,18 @@ export function WatchCalendar({
   }
 
   const today = fmt(new Date())
-  const scheduleIsOutsideToday = today < data.schedule.start_date || today > data.schedule.end_date
-  const coverageNotice = scheduleIsOutsideToday
-    && (!coverageWarningDismissedAt || data.schedule.generated_at > coverageWarningDismissedAt)
-    ? `Current schedule covers ${format(parseISO(data.schedule.start_date), 'd MMM yyyy')} – ${format(parseISO(data.schedule.end_date), 'd MMM yyyy')}. Regenerate to cover today.`
-    : null
+  // A schedule that has not STARTED is planned, not broken — it must not read
+  // like an expired one (schedule.md §5.1, frontend.md §4.5).
+  const notStarted = today < data.schedule.start_date
+  const expired = today > data.schedule.end_date
+  const range = `${format(parseISO(data.schedule.start_date), 'd MMM yyyy')} – ${format(parseISO(data.schedule.end_date), 'd MMM yyyy')}`
+  const daysAway = differenceInCalendarDays(parseISO(data.schedule.start_date), parseISO(today))
+  const coverageNotice = !(notStarted || expired)
+    || (coverageWarningDismissedAt && data.schedule.generated_at <= coverageWarningDismissedAt)
+    ? null
+    : notStarted
+      ? `Watch schedule starts ${format(parseISO(data.schedule.start_date), 'd MMM yyyy')} — ${daysAway} ${daysAway === 1 ? 'day' : 'days'} away.${data.interimScheduledDates.length ? ' Days before then show your previous rota.' : ''}`
+      : `Current schedule covered ${range}. Regenerate to cover today.`
 
   const header = (periodLabel: string) => (
     <div className="flex flex-wrap items-center justify-between gap-ws-3">

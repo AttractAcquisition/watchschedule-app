@@ -28,6 +28,11 @@ export interface DashboardData {
   // Any configuration save (lanes, horizon, weekend structure) touches this row,
   // so it dates the configuration behind the current schedule.
   settingsUpdatedAt: string | null
+  // Set when the current schedule has not started yet (a planned-ahead window,
+  // schedule.md §5.1). Dates before it are served by the superseded schedule
+  // that still covers them — the same per-date winner rule as canonicalHistory.
+  plannedStart: string | null
+  interimScheduledDates: string[]
 }
 
 export const dashboardKey = (vesselId: string | undefined) => ['dashboard', vesselId] as const
@@ -58,16 +63,43 @@ export function useDashboardData(vesselId: string | undefined) {
       for (const result of outputs) if (result.error) throw result.error
       const [{ data: assignments }, { data: ledger }] = outputs
       const crewList = (crew ?? []) as Crew[]
+      const laneList = scheduleLanes(sched?.rota_snapshot, (lanes ?? []) as Lane[], (assignments ?? []) as Assignment[])
+
+      // A planned-ahead schedule must not blank out the rota the crew are
+      // currently working: fill the days before it from the newest schedule
+      // that still covers them, for lanes the configuration kept.
+      const today = new Date().toISOString().slice(0, 10)
+      const plannedStart = sched && sched.start_date > today ? sched.start_date : null
+      let merged = (assignments ?? []) as Assignment[]
+      let interimScheduledDates: string[] = []
+      if (sched && plannedStart) {
+        const prior = await supabase.from('schedules').select('id,rota_snapshot').eq('vessel_id', vesselId!)
+          .neq('id', sched.id).lte('start_date', today).gte('end_date', today)
+          .order('generated_at', { ascending: false }).limit(1).maybeSingle()
+        if (prior.error) throw prior.error
+        if (prior.data) {
+          const before = await supabase.from('watch_assignments').select('lane_id,crew_id,watch_date,day_type,is_friday')
+            .eq('schedule_id', prior.data.id).lt('watch_date', plannedStart).order('watch_date')
+          if (before.error) throw before.error
+          const laneIds = new Set(laneList.map((l) => l.id))
+          const kept = ((before.data ?? []) as Assignment[]).filter((a) => laneIds.has(a.lane_id))
+          merged = [...kept, ...merged]
+          const snapshot = prior.data.rota_snapshot as { scheduled_dates?: string[] } | null
+          interimScheduledDates = (snapshot?.scheduled_dates ?? kept.map((a) => a.watch_date)).filter((d) => d < plannedStart)
+        }
+      }
       return {
         schedule: (sched ?? null) as Schedule | null,
-        assignments: (assignments ?? []) as Assignment[],
+        assignments: merged,
         ledger: (ledger ?? []) as LedgerRow[],
         crew: crewList,
-        lanes: scheduleLanes(sched?.rota_snapshot, (lanes ?? []) as Lane[], (assignments ?? []) as Assignment[]),
+        lanes: laneList,
         crewById: new Map(crewList.map((c) => [c.id, c])),
         charters: (charters ?? []) as Charter[],
         leave: (leave ?? []) as Leave[],
         settingsUpdatedAt: settings?.updated_at ?? null,
+        plannedStart,
+        interimScheduledDates,
       }
     },
     staleTime: 30_000,

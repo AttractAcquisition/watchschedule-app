@@ -48,7 +48,7 @@ export function ScheduleHistoryButton({ data }: { data: DashboardData }) {
   const histData: DashboardData | null = useMemo(() => {
     if (!selected || !histAssignments) return null
     const lanes = scheduleLanes(selected.rota_snapshot, allLanes ?? [], histAssignments)
-    return { schedule: { id: selected.id, start_date: selected.start_date, end_date: selected.end_date, horizon_weeks: selected.horizon_weeks, generated_at: selected.generated_at }, assignments: histAssignments, ledger: [], crew: data.crew, lanes, crewById: data.crewById, charters: [], leave: [], settingsUpdatedAt: null }
+    return { schedule: { id: selected.id, start_date: selected.start_date, end_date: selected.end_date, horizon_weeks: selected.horizon_weeks, generated_at: selected.generated_at }, assignments: histAssignments, ledger: [], crew: data.crew, lanes, crewById: data.crewById, charters: [], leave: [], settingsUpdatedAt: null, plannedStart: null, interimScheduledDates: [] }
   }, [selected, histAssignments, allLanes, data.crew, data.crewById])
 
   return (

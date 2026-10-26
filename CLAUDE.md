@@ -93,7 +93,7 @@ updateLedger(lane, crew_id, date, dayType, isFriday)
 
 ### Other seams to keep aligned
 - **Lane rule:** Solo = 1 lane (`kind='solo'`, all eligible crew, no dept); Dual = 2 dept lanes; Triple = 3 dept lanes. **One fairness ledger per lane.**
-- **Horizon cap:** `horizon_weeks ∈ [1,13]` (~3 months) — DB check **and** UI control **and** engine clamp.
+- **Horizon cap:** `horizon_weeks ∈ [1,13]` (~3 months) — DB check **and** UI control **and** engine clamp. The same cap governs the other two **generation-window** shapes (26 Oct 2026): `generation_mode ∈ {weeks, month, range}`, with `generation_start_date`..`generation_end_date` ≤ **91 days inclusive**. A begun window clamps to today; a window may start in the future.
 - **Departments (4):** enum `deck, interior, engineering, officer`. Command/Captain is a role, not a watch dept — handled via per-member `eligible` flag.
 - **Tiers (3):** `solo` / `dual` / `triple`; Solo €39, Dual €99, Triple €199 monthly; annual = 2 months free. (Marketing site = pricing source of truth; B1 realigned Dual/Triple up, reversing the Phase-3 €79/€149 figure.)
 - **Gate:** Auth → `payment_status` → `onboarding_complete`. Gate columns webhook-written, client read-only; RLS is the real gate.

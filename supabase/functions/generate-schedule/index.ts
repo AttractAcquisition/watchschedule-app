@@ -1,6 +1,6 @@
 import { handlePreflight, json } from '../_shared/cors.ts'
 import { rotaContext, loadRotaInputs, loadGlobalBase, validISODate } from '../_shared/rota_data.ts'
-import { planGlobal, validateLanes } from '../_shared/rota_v2.ts'
+import { generationWindow, planGlobal, validateLanes } from '../_shared/rota_v2.ts'
 
 Deno.serve(async req => {
   const pre = handlePreflight(req)
@@ -13,13 +13,13 @@ Deno.serve(async req => {
     const today = new Date().toISOString().slice(0, 10)
     const { data: existing, error: ee } = await admin.from('schedules').select('id').eq('vessel_id', vesselId).limit(1)
     if (ee) throw ee
-    // Regeneration always starts today, never rewrites completed duty.
-    const start = existing?.length || body.regenerate ? today : settings.schedule_start_date
-    if (!validISODate(start)) throw new Error('Invalid schedule start date')
+    // schedule.md §5.1 — weeks, a month, or an explicit range.
+    const { start, endDate } = generationWindow(settings, today, !existing?.length && !body.regenerate)
+    if (!validISODate(start) || (endDate && !validISODate(endDate))) throw new Error('Invalid generation window')
     const inputs = await loadRotaInputs(admin, vesselId)
     validateLanes(inputs.lanes, tier)
     const base = await loadGlobalBase(admin, vesselId, start, inputs)
-    const plan = planGlobal({ startDate: start, settings, crew: inputs.crew, lanes: inputs.lanes, base: base.ledger, leave: inputs.leave, charters: inputs.charters })
+    const plan = planGlobal({ startDate: start, endDate, settings, crew: inputs.crew, lanes: inputs.lanes, base: base.ledger, leave: inputs.leave, charters: inputs.charters })
     const { data: scheduleId, error: publishError } = await admin.rpc('publish_rota', {
       p_vessel: vesselId, p_revision: revision,
       p_plan: { ...plan, ledger: undefined, legacy_snapshots: base.legacySnapshots, snapshot: { lanes: inputs.lanes, opportunities: plan.opportunities, scheduled_dates: [...new Set(plan.events.map(e => e.watch_date))], history_estimated: base.estimated }, history_estimated: base.estimated },

@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { planGlobal, validateLanes, canonicalHistory, replayGlobal, seedHistory, type RotaLane } from './rota_v2.ts'
+import { planGlobal, validateLanes, canonicalHistory, replayGlobal, seedHistory, generationEnd, generationWindow, spanWeeks, MAX_WINDOW_DAYS, type RotaLane } from './rota_v2.ts'
 import { zeroEntry, addDays, isoWeekday } from './fairness_engine.ts'
 import type { Crew, ScheduleSettings, PlannedAssignment } from './schedule_engine.ts'
 
@@ -149,4 +149,59 @@ Deno.test('the Friday exclusion reaches across a generation boundary via the led
   const p = run([crew('a'), crew('b')], [lane('1')], { startDate: '2026-09-26', base, settings: { ...settings, weekend_structure: 'sat_sun_block' } })
   assert.equal(p.assignments.find(a => a.watch_date === '2026-09-26')?.crew_id, 'b')
   assert.equal(p.assignments.find(a => a.watch_date === '2026-09-27')?.crew_id, 'b')
+})
+
+// schedule.md §5.1 — the generation window: weeks, a month, or a range.
+Deno.test('an explicit window is honoured exactly and still described in weeks', () => {
+  const p = run(['a','b','c'].map(id => crew(id)), [lane('1')], { endDate: '2026-10-31' })
+  assert.equal(p.start_date, '2026-09-21')
+  assert.equal(p.end_date, '2026-10-31')
+  assert.equal(p.horizon_weeks, 6)                       // ceil(41 / 7), a derived descriptor
+  assert.equal(new Set(p.assignments.map(a => a.watch_date)).size, 41)
+  assert.deepEqual(p, run(['c','b','a'].map(id => crew(id)), [lane('1')], { endDate: '2026-10-31' }))
+})
+Deno.test('a whole month is just a range, and the 91-day cap binds every shape', () => {
+  const november = run(['a','b','c'].map(id => crew(id)), [lane('1')], { startDate: '2026-11-01', endDate: '2026-11-30' })
+  assert.equal(november.end_date, '2026-11-30')
+  assert.equal(new Set(november.assignments.map(a => a.watch_date)).size, 30)
+  // Over-long windows and absurd horizons both clamp to the same 91 days.
+  assert.equal(generationEnd('2026-09-21', 4, '2027-09-21'), addDays('2026-09-21', MAX_WINDOW_DAYS - 1))
+  assert.equal(generationEnd('2026-09-21', 99), addDays('2026-09-21', 90))
+  assert.equal(run(['a'].map(id => crew(id)), [lane('1')], { endDate: '2027-09-21' }).horizon_weeks, 13)
+  // An end before the start degrades to a single day rather than an empty plan.
+  assert.equal(generationEnd('2026-09-21', 4, '2026-09-01'), '2026-09-21')
+  assert.equal(spanWeeks('2026-09-21', '2026-09-21'), 1)
+})
+Deno.test('weeks mode is byte-identical to the pre-window engine', () => {
+  const people = ['a','b','c','d'].map(id => crew(id))
+  const p = run(people, [lane('1'), lane('2', ['deck'], 2)])
+  assert.equal(p.end_date, addDays('2026-09-21', 4 * 7 - 1))
+  assert.equal(p.horizon_weeks, 4)
+  assert.deepEqual(p, run(people, [lane('1'), lane('2', ['deck'], 2)], { endDate: null }))
+})
+
+Deno.test('the window derivation: weeks rolls forward, month/range is taken as given but never rewrites the past', () => {
+  const today = '2026-10-26'
+  const weeks = { schedule_start_date: '2026-11-15', generation_mode: 'weeks' as const }
+  assert.deepEqual(generationWindow(weeks, today, true), { start: '2026-11-15', endDate: null })
+  assert.deepEqual(generationWindow(weeks, today, false), { start: today, endDate: null })
+  // A month already under way starts today, not on the 1st.
+  const october = { schedule_start_date: '2026-01-01', generation_mode: 'month' as const, generation_start_date: '2026-10-01', generation_end_date: '2026-10-31' }
+  assert.deepEqual(generationWindow(october, today, false), { start: today, endDate: '2026-10-31' })
+  // Planning ahead keeps its own start.
+  const december = { ...october, generation_start_date: '2026-12-01', generation_end_date: '2026-12-31' }
+  assert.deepEqual(generationWindow(december, today, false), { start: '2026-12-01', endDate: '2026-12-31' })
+  // A window wholly in the past is refused, as is a half-set one.
+  assert.throws(() => generationWindow({ ...october, generation_start_date: '2026-09-01', generation_end_date: '2026-09-30' }, today, false), /already passed/)
+  assert.throws(() => generationWindow({ ...october, generation_end_date: null }, today, false), /start and end date/)
+})
+Deno.test('a planned-ahead window never costs the crew their earlier duty in the ledger', () => {
+  // November is generated, then December is planned while October is still running.
+  const versions = [
+    { id: 'nov', start_date: '2026-11-01', end_date: '2026-11-30', generated_at: '2026-10-20' },
+    { id: 'dec', start_date: '2026-12-01', end_date: '2026-12-31', generated_at: '2026-10-26' },
+  ]
+  const asg = (schedule_id: string, watch_date: string) => ({ schedule_id, watch_date, lane_id: '1', crew_id: 'a', day_type: 'weekday' as const, is_friday: false })
+  const past = canonicalHistory(versions, [asg('nov', '2026-11-10'), asg('dec', '2026-12-10')], [], '2026-12-15')
+  assert.deepEqual(past.assignments.map(a => a.schedule_id), ['nov', 'dec'])
 })

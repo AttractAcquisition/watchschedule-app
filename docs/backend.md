@@ -57,6 +57,7 @@ create type onboarding_step as enum ('crew', 'settings', 'generate', 'complete')
 create type ineligibility_reason as enum ('leave', 'sick', 'training', 'role_exempt', 'other');
 create type weekend_structure as enum ('per_day', 'sat_sun_block', 'fri_sat_sun_block'); -- B6: weekend coverage shape
 create type charter_status as enum ('booked', 'cancelled'); -- B7: only 'booked' pauses generation
+create type generation_mode as enum ('weeks', 'month', 'range'); -- generation window shape (26 Oct 2026)
 ```
 
 ### 2.2 Tables
@@ -132,9 +133,25 @@ create table watch_settings (
   --   dual  -> 1 or 2 departments selected
   --   triple-> 1, 2, or 3 departments selected
   selected_departments department[] not null default '{}',
-  -- Horizon: how far ahead to generate, capped at 3 months.
+  -- Generation window (26 October 2026). Three shapes, one cap of 91 days (~3 months):
+  --   weeks -> horizon_weeks forward from the start (the original behaviour)
+  --   month -> a calendar month, stored CONCRETELY as its 1st and last day
+  --   range -> any explicit start..end
+  -- month and range are the same mechanism; the month picker is a UI convenience
+  -- that fills the two dates, so the engine stays dumb and deterministic.
+  generation_mode      generation_mode not null default 'weeks',
+  generation_start_date date,                          -- null iff mode = 'weeks'
+  generation_end_date   date,                          -- null iff mode = 'weeks'
   horizon_weeks        int not null default 4 check (horizon_weeks between 1 and 13),
   schedule_start_date  date not null,
+  constraint generation_window_shape check (
+    case when generation_mode = 'weeks'
+      then generation_start_date is null and generation_end_date is null
+      else generation_start_date is not null and generation_end_date is not null
+        and generation_end_date >= generation_start_date
+        and generation_end_date - generation_start_date <= 90   -- 91 days inclusive
+    end
+  ),
   include_weekends     boolean not null default true,  -- whether Sat/Sun rota is generated
   weekend_structure    weekend_structure not null default 'per_day', -- B6: per_day | sat_sun_block | fri_sat_sun_block (structure only; scoring unchanged, counts per covered day)
   -- Rotation anchors (optional; engine has sane defaults):

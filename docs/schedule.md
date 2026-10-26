@@ -26,7 +26,7 @@ All writes are performed by the Edge Function using the **service-role** client.
 
 Loaded server-side at the start of a run (re-derive `vessel_id` from the JWT — never trust the client):
 
-- **`watch_settings`** for the vessel: `tier`, `selected_departments`, `horizon_weeks` (1–13, capped at ~3 months), `schedule_start_date`, `include_weekends`, rotation anchors, and **`weekend_structure`** (B6: `per_day` | `sat_sun_block` | `fri_sat_sun_block`).
+- **`watch_settings`** for the vessel: `tier`, `selected_departments`, the generation window (`generation_mode` + `horizon_weeks` 1–13 / `generation_start_date`..`generation_end_date` ≤ 91 days — see §5.1), `schedule_start_date`, `include_weekends`, rotation anchors, and **`weekend_structure`** (B6: `per_day` | `sat_sun_block` | `fri_sat_sun_block`).
 - **`crew_members`**: the full crew, with `department` and `eligible`.
 - **`watch_lanes`**: the concrete lanes (derived from settings — see section 3).
 - **`fairness_ledger`**: the current persistent state per (lane, crew) — possibly seeded by `seed-fairness`, possibly zero.
@@ -102,8 +102,7 @@ High-level, deterministic, per run:
 
 ```
 function generateSchedule(vessel, settings, crew, lanes, ledger, params):
-    start = params.from_date ?? (regenerate ? today : settings.schedule_start_date)
-    end   = start + settings.horizon_weeks * 7 days - 1 day
+    start, end = generationWindow(settings, today, params)   # see 5.1
     dates = each calendar date from start..end (inclusive)
 
     create schedules row { start, end, horizon_weeks, is_current=true }
@@ -146,6 +145,31 @@ function generateSchedule(vessel, settings, crew, lanes, ledger, params):
 **Why chronological ascending order matters:** the Monday-after-weekend exclusion and the consecutive-run penalty both depend on what was assigned on immediately preceding days. Processing dates in order means each decision sees an up-to-date ledger and an accurate `alreadyAssignedOn` map. Do not parallelise across dates within a lane in a way that breaks this ordering.
 
 **Lane independence:** lanes can be processed in any order relative to each other on a given date (they don't share pools in Dual/Triple, since each crew member is in one department). The `alreadyAssignedOn[date]` guard is a belt-and-braces safety for any edge case where a crew member could appear in more than one pool (shouldn't happen in v1, but the guard keeps the rota sane).
+
+### 5.1 The generation window (26 October 2026 amendment)
+
+A run's `start..end` comes from `watch_settings.generation_mode` (`backend.md` §2). The three shapes differ only in how the two dates are derived; everything downstream — the chronological loop, the ledger, the constraints, storage — is identical and date-driven.
+
+```
+function generationWindow(settings, today, params):
+    if settings.generation_mode == 'weeks':
+        start = params.from_date ?? (regenerate ? today : settings.schedule_start_date)
+        end   = start + horizonWeeks * 7 days - 1 day          # horizonWeeks clamped to 1..13
+    else:                                                       # 'month' or 'range'
+        if settings.generation_end_date < today: FAIL           # the window has already passed
+        start = max(settings.generation_start_date, today)       # never rewrite stood duty
+        end   = settings.generation_end_date
+    end = min(end, start + 90 days)                             # 91 days inclusive — the hard cap
+    return start, end
+```
+
+- **One cap, three shapes.** `horizon_weeks ∈ [1,13]` and an explicit window of **≤ 91 days inclusive** are the same ~3-month limit. Enforced in three places as ever: the DB check (`generation_window_shape`), the UI control, and an engine clamp — the engine clamps defensively and never trusts the stored dates.
+- **A window that has already begun is clamped to today.** Picking "October" on 26 October generates 26–31 October, not a rewrite of the first 25 days. This is the existing invariant (regeneration never rewrites completed duty, §7), not a new rule; the UI shows the *effective* range so the captain is never surprised.
+- **A window may start in the future** — "generate December during October" is supported. The new schedule becomes `is_current` while covering no present day, which is legitimate, not an error state. Two consequences that are already handled and must stay handled:
+  - **Fairness is unaffected.** `canonicalHistory` resolves the winning schedule **per date** (newest `generated_at` whose `start_date <= date <= end_date`), so dates before the planned window still resolve to the schedule that actually covers them. A planned-ahead December never makes the ledger forget November.
+  - **The superseded rota stays visible.** The earlier schedule's rows persist untouched (`is_current = false`, never deleted), so the dashboard shows it for the interim days up to the planned window's start (`frontend.md` §4.5).
+- **`schedules.horizon_weeks` stays populated** for every mode, as `ceil(days / 7)` clamped to 1..13 — it is `not null` and feeds existing labels and exports. For `month`/`range` it is a derived descriptor of the span, not the thing that defined it; `start_date`/`end_date` are authoritative.
+- **`suggest-generation-horizon` only applies to `weeks`.** It compares 1–13 week horizons, so it is offered only in that mode (`frontend.md` §4.6).
 
 ---
 
