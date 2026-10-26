@@ -13,7 +13,10 @@ export const W_FRIDAY_SELECT = 2.0 // extra penalty per existing Friday when ass
 export const RECENCY_NUDGE = 0.1 // tiny tie-shaper for a very-recent last_watch_date
 
 // Score scaling (fairness.md §5)
-export const K = 25 // points lost per 1 std-dev from the lane mean
+// A standard-deviation scale with a small-discrete tolerance: a one-watch
+// difference in an otherwise even short season should not read as a severe
+// fairness failure, while materially unequal pools still separate clearly.
+export const K = 12 // points lost per 1 std-dev from the vessel mean
 export const EPSILON = 0.5 // spread floor to avoid divide-by-zero
 export const SCORE_HIGH = 85 // >= -> sea green (well balanced)
 export const SCORE_MID = 70 // 70–84 -> gold; < -> muted red

@@ -7,6 +7,7 @@ export interface HistSchedule {
   end_date: string
   is_current: boolean
   horizon_weeks: number
+  rota_snapshot?: unknown
 }
 
 // Derive a chronological version index (v1 = oldest generation) and return the

@@ -1,3 +1,5 @@
+> Rota V2 amendment (22 September 2026): [rota-v2.md](./rota-v2.md) supersedes older department limits, disjoint grouping, per-lane fairness and generation persistence described below.
+
 <!-- WatchSchedule spec set — v2 (cross-referenced & seam-verified). Document 2 of 6: frontend. Conforms to backend.md contracts. -->
 # frontend.md — WatchSchedule Frontend Architecture
 

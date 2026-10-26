@@ -8,11 +8,12 @@ import { writeClipboard } from './whatsappExport'
 import { formatFairnessText } from './fairnessText'
 import type { DashboardData } from './useDashboardData'
 
-const btn = 'flex min-h-[36px] items-center gap-ws-2 rounded-ws-sm border border-ws-line-strong px-ws-3 py-ws-2 text-ws-sm font-medium text-ws-text transition-all hover:border-ws-gold hover:bg-ws-steel-3 disabled:opacity-50'
+const btn = 'flex min-h-[36px] w-full items-center gap-ws-2 rounded-ws-sm border border-ws-line-strong px-ws-3 py-ws-2 text-ws-sm font-medium text-ws-text transition-all hover:border-ws-gold hover:bg-ws-steel-3 disabled:opacity-50'
 
 export function FairnessExportButtons({ data, vesselName, onPrint }: { data: DashboardData; vesselName: string; onPrint: () => void }) {
   const [copied, setCopied] = useState(false)
   const [fallback, setFallback] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
   const hasLedger = data.ledger.length > 0
 
   async function onCopy() {
@@ -27,17 +28,24 @@ export function FairnessExportButtons({ data, vesselName, onPrint }: { data: Das
 
   return (
     <>
-      <div className="flex flex-wrap items-center gap-ws-2">
-        <button type="button" onClick={onCopy} disabled={!hasLedger} className={btn}>
-          {copied ? <Check className="h-4 w-4 text-ws-seagreen" strokeWidth={2} aria-hidden /> : <Copy className="h-4 w-4" strokeWidth={1.5} aria-hidden />}
-          {copied ? 'Copied!' : 'WhatsApp'}
+      <div className="relative">
+        <button type="button" onClick={() => setOpen((value) => !value)} disabled={!hasLedger} aria-expanded={open} aria-haspopup="menu" className="flex min-h-[40px] items-center gap-ws-2 rounded-ws-sm border border-ws-line-strong px-ws-3 py-ws-2 text-ws-sm font-medium text-ws-text transition-all hover:border-ws-gold hover:bg-ws-steel-3 disabled:opacity-50">
+          <FileDown className="h-4 w-4" strokeWidth={1.5} aria-hidden /> Export
         </button>
-        <button type="button" onClick={onPrint} disabled={!hasLedger} className={btn} title="Save fairness as a PDF (choose “Save as PDF” in the dialog)">
-          <FileDown className="h-4 w-4" strokeWidth={1.5} aria-hidden /> PDF
-        </button>
-        <button type="button" onClick={onPrint} disabled={!hasLedger} className={btn}>
-          <Printer className="h-4 w-4" strokeWidth={1.5} aria-hidden /> Print
-        </button>
+        {open && (
+          <div role="menu" className="absolute right-0 top-full z-10 mt-ws-2 flex w-40 flex-col gap-ws-1 rounded-ws-md border border-ws-line bg-ws-steel-2 p-ws-2 shadow-ws-lg">
+            <button type="button" onClick={onCopy} className={btn}>
+              {copied ? <Check className="h-4 w-4 text-ws-seagreen" strokeWidth={2} aria-hidden /> : <Copy className="h-4 w-4" strokeWidth={1.5} aria-hidden />}
+              {copied ? 'Copied!' : 'WhatsApp'}
+            </button>
+            <button type="button" onClick={onPrint} className={btn} title="Save fairness as a PDF (choose “Save as PDF” in the dialog)">
+              <FileDown className="h-4 w-4" strokeWidth={1.5} aria-hidden /> PDF
+            </button>
+            <button type="button" onClick={onPrint} className={btn}>
+              <Printer className="h-4 w-4" strokeWidth={1.5} aria-hidden /> Print
+            </button>
+          </div>
+        )}
       </div>
 
       {fallback !== null && (

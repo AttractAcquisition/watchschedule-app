@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       charter_periods: {
@@ -19,6 +44,7 @@ export type Database = {
           created_at: string
           end_date: string
           id: string
+          is_immediate: boolean
           label: string | null
           start_date: string
           status: Database["public"]["Enums"]["charter_status"]
@@ -28,6 +54,7 @@ export type Database = {
           created_at?: string
           end_date: string
           id?: string
+          is_immediate?: boolean
           label?: string | null
           start_date: string
           status?: Database["public"]["Enums"]["charter_status"]
@@ -37,6 +64,7 @@ export type Database = {
           created_at?: string
           end_date?: string
           id?: string
+          is_immediate?: boolean
           label?: string | null
           start_date?: string
           status?: Database["public"]["Enums"]["charter_status"]
@@ -386,6 +414,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "lane_department_same_vessel"
+            columns: ["lane_id", "vessel_id"]
+            isOneToOne: false
+            referencedRelation: "watch_lanes"
+            referencedColumns: ["id", "vessel_id"]
+          },
+          {
             foreignKeyName: "lane_departments_lane_id_fkey"
             columns: ["lane_id"]
             isOneToOne: false
@@ -405,6 +440,7 @@ export type Database = {
         Row: {
           created_at: string
           email: string | null
+          full_name: string | null
           id: string
           onboarding_complete: boolean
           onboarding_step: Database["public"]["Enums"]["onboarding_step"]
@@ -413,11 +449,13 @@ export type Database = {
           stripe_customer_id: string | null
           stripe_subscription_id: string | null
           updated_at: string
+          username: string | null
           vessel_id: string | null
         }
         Insert: {
           created_at?: string
           email?: string | null
+          full_name?: string | null
           id: string
           onboarding_complete?: boolean
           onboarding_step?: Database["public"]["Enums"]["onboarding_step"]
@@ -426,11 +464,13 @@ export type Database = {
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null
           updated_at?: string
+          username?: string | null
           vessel_id?: string | null
         }
         Update: {
           created_at?: string
           email?: string | null
+          full_name?: string | null
           id?: string
           onboarding_complete?: boolean
           onboarding_step?: Database["public"]["Enums"]["onboarding_step"]
@@ -439,6 +479,7 @@ export type Database = {
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null
           updated_at?: string
+          username?: string | null
           vessel_id?: string | null
         }
         Relationships: [
@@ -451,34 +492,72 @@ export type Database = {
           },
         ]
       }
+      rota_seed: {
+        Row: {
+          baseline: Json
+          history_estimated: boolean
+          records: Json
+          updated_at: string
+          vessel_id: string
+        }
+        Insert: {
+          baseline?: Json
+          history_estimated?: boolean
+          records?: Json
+          updated_at?: string
+          vessel_id: string
+        }
+        Update: {
+          baseline?: Json
+          history_estimated?: boolean
+          records?: Json
+          updated_at?: string
+          vessel_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rota_seed_vessel_id_fkey"
+            columns: ["vessel_id"]
+            isOneToOne: true
+            referencedRelation: "vessels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       schedules: {
         Row: {
           created_at: string
           end_date: string
+          engine_version: number
           generated_at: string
           horizon_weeks: number
           id: string
           is_current: boolean
+          rota_snapshot: Json | null
           start_date: string
           vessel_id: string
         }
         Insert: {
           created_at?: string
           end_date: string
+          engine_version?: number
           generated_at?: string
           horizon_weeks: number
           id?: string
           is_current?: boolean
+          rota_snapshot?: Json | null
           start_date: string
           vessel_id: string
         }
         Update: {
           created_at?: string
           end_date?: string
+          engine_version?: number
           generated_at?: string
           horizon_weeks?: number
           id?: string
           is_current?: boolean
+          rota_snapshot?: Json | null
           start_date?: string
           vessel_id?: string
         }
@@ -530,30 +609,120 @@ export type Database = {
           },
         ]
       }
+      vessel_fairness: {
+        Row: {
+          balance: string | null
+          consecutive_run: number
+          crew_id: string
+          deviation: number | null
+          fairness_score: number | null
+          friday_opportunities: number
+          friday_watches: number
+          history_estimated: boolean
+          last_watch_date: string | null
+          last_weekend_date: string | null
+          total_watches: number
+          updated_at: string
+          vessel_id: string
+          weekday_opportunities: number
+          weekday_watches: number
+          weekend_opportunities: number
+          weekend_watches: number
+        }
+        Insert: {
+          balance?: string | null
+          consecutive_run?: number
+          crew_id: string
+          deviation?: number | null
+          fairness_score?: number | null
+          friday_opportunities?: number
+          friday_watches?: number
+          history_estimated?: boolean
+          last_watch_date?: string | null
+          last_weekend_date?: string | null
+          total_watches?: number
+          updated_at?: string
+          vessel_id: string
+          weekday_opportunities?: number
+          weekday_watches?: number
+          weekend_opportunities?: number
+          weekend_watches?: number
+        }
+        Update: {
+          balance?: string | null
+          consecutive_run?: number
+          crew_id?: string
+          deviation?: number | null
+          fairness_score?: number | null
+          friday_opportunities?: number
+          friday_watches?: number
+          history_estimated?: boolean
+          last_watch_date?: string | null
+          last_weekend_date?: string | null
+          total_watches?: number
+          updated_at?: string
+          vessel_id?: string
+          weekday_opportunities?: number
+          weekday_watches?: number
+          weekend_opportunities?: number
+          weekend_watches?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vessel_fairness_crew_id_fkey"
+            columns: ["crew_id"]
+            isOneToOne: false
+            referencedRelation: "crew_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vessel_fairness_vessel_id_fkey"
+            columns: ["vessel_id"]
+            isOneToOne: false
+            referencedRelation: "vessels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       vessels: {
         Row: {
           created_at: string
+          crew_change_warning_dismissed_at: string | null
+          fairness_reset_at: string | null
           id: string
           length_m: number | null
           name: string
           owner_id: string
+          rota_revision: number
+          schedule_coverage_warning_dismissed_at: string | null
           updated_at: string
+          watch_settings_reconciliation_dismissed_at: string | null
         }
         Insert: {
           created_at?: string
+          crew_change_warning_dismissed_at?: string | null
+          fairness_reset_at?: string | null
           id?: string
           length_m?: number | null
           name?: string
           owner_id: string
+          rota_revision?: number
+          schedule_coverage_warning_dismissed_at?: string | null
           updated_at?: string
+          watch_settings_reconciliation_dismissed_at?: string | null
         }
         Update: {
           created_at?: string
+          crew_change_warning_dismissed_at?: string | null
+          fairness_reset_at?: string | null
           id?: string
           length_m?: number | null
           name?: string
           owner_id?: string
+          rota_revision?: number
+          schedule_coverage_warning_dismissed_at?: string | null
           updated_at?: string
+          watch_settings_reconciliation_dismissed_at?: string | null
         }
         Relationships: []
       }
@@ -630,6 +799,7 @@ export type Database = {
           id: string
           kind: Database["public"]["Enums"]["watch_lane_kind"]
           label: string
+          position: number
           vessel_id: string
         }
         Insert: {
@@ -639,6 +809,7 @@ export type Database = {
           id?: string
           kind: Database["public"]["Enums"]["watch_lane_kind"]
           label: string
+          position?: number
           vessel_id: string
         }
         Update: {
@@ -648,6 +819,7 @@ export type Database = {
           id?: string
           kind?: Database["public"]["Enums"]["watch_lane_kind"]
           label?: string
+          position?: number
           vessel_id?: string
         }
         Relationships: [
@@ -716,6 +888,19 @@ export type Database = {
     }
     Functions: {
       current_vessel_id: { Args: never; Returns: string }
+      publish_rota: {
+        Args: { p_plan: Json; p_revision: number; p_vessel: string }
+        Returns: string
+      }
+      replace_rota_seed: {
+        Args: { p_records: Json; p_revision: number; p_vessel: string }
+        Returns: undefined
+      }
+      reset_fairness_history: { Args: never; Returns: undefined }
+      save_watch_configuration: {
+        Args: { p_lanes: Json; p_settings: Json }
+        Returns: undefined
+      }
     }
     Enums: {
       charter_status: "booked" | "cancelled"
@@ -747,12 +932,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -776,11 +961,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -801,11 +986,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -826,11 +1011,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -843,11 +1028,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -857,6 +1042,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       charter_status: ["booked", "cancelled"],

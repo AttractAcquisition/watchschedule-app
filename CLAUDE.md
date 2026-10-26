@@ -1,5 +1,7 @@
 # CLAUDE.md — WatchSchedule Operating Contract
 
+> Approved 22 September 2026: [docs/rota-v2.md](docs/rota-v2.md) supersedes the legacy per-lane fairness seam, disjoint department rule, and department-count tier limits below. V2 uses overlapping department pools, 1–3 subscription-limited lanes, and one vessel-wide ledger per crew member. All other safety and tenant-isolation rules remain in force.
+
 This is the persistent operating contract for building WatchSchedule. Follow it in **every** session. It is derived **from `/docs`** — the six specification documents are the source of truth. This file summarises them; it never overrides them. When this file and a doc disagree, the doc wins and this file should be corrected.
 
 ---

@@ -5,7 +5,7 @@
 // appended to the vessel's crew). NO new backend, NO new function — it reuses the
 // same storage bucket, path-prefix policy, and function as onboarding. Tokens only.
 import { useRef, useState } from 'react'
-import { Camera, Loader2, Plus, Trash2, Upload, X } from 'lucide-react'
+import { Camera, Loader2, Plus, Trash2, Upload, UserPlus, X } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { classifyDepartment, DEPARTMENTS, type Department } from '../../lib/classifyDepartment'
 
@@ -20,7 +20,8 @@ const extOf = (file: File) => {
 }
 
 export function CrewUploadModal({ vesselId, onClose, onAdded }: { vesselId: string; onClose: () => void; onAdded: () => void }) {
-  const [rows, setRows] = useState<Row[]>([])
+  const [mode, setMode] = useState<'manual' | 'image'>('manual')
+  const [rows, setRows] = useState<Row[]>([newRow()])
   const [parsing, setParsing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -33,10 +34,15 @@ export function CrewUploadModal({ vesselId, onClose, onAdded }: { vesselId: stri
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, position, department: r.deptTouched ? r.department : classifyDepartment(position) } : r)))
   }
 
-  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (file) e.target.value = ''
-    if (!file) return
+  function chooseMode(next: 'manual' | 'image') {
+    setMode(next)
+    setError(null)
+    setNotice(null)
+    if (next === 'manual') setRows((current) => current.length > 0 ? current : [newRow()])
+    else setRows([])
+  }
+
+  async function readFile(file: File) {
     setError(null); setNotice(null); setParsing(true)
     try {
       // Same bucket + {vessel_id}/{uuid}.{ext} path-prefix policy as onboarding.
@@ -58,6 +64,12 @@ export function CrewUploadModal({ vesselId, onClose, onAdded }: { vesselId: stri
     }
   }
 
+  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (file) e.target.value = ''
+    if (file) void readFile(file)
+  }
+
   async function onConfirm() {
     const clean = rows.map((r) => ({ ...r, full_name: r.full_name.trim(), position: r.position.trim() }))
     if (clean.length === 0) return setError('Add at least one crew member.')
@@ -76,31 +88,39 @@ export function CrewUploadModal({ vesselId, onClose, onAdded }: { vesselId: stri
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ws-navy-deep/70 p-ws-5" role="dialog" aria-modal="true" aria-label="Upload crew list">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ws-navy-deep/70 p-ws-5" role="dialog" aria-modal="true" aria-label="Add crew">
       <div className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-ws-lg border border-ws-line bg-ws-steel-2 shadow-ws-lg">
         <header className="flex items-center justify-between border-b border-ws-line px-ws-5 py-ws-3">
-          <span className="font-display text-ws-md font-semibold text-ws-offwhite">Add crew from a photo</span>
+          <span className="font-display text-ws-md font-semibold text-ws-offwhite">Add crew</span>
           <button type="button" onClick={onClose} aria-label="Close" className="flex h-10 w-10 items-center justify-center rounded-ws-sm text-ws-text-muted hover:bg-ws-steel-3 hover:text-ws-text">
             <X className="h-4 w-4" strokeWidth={1.5} aria-hidden />
           </button>
         </header>
 
         <div className="overflow-y-auto p-ws-5">
-          <p className="text-ws-sm text-ws-text-muted">Upload an image of your crew list, or take a photo. We read it automatically — review every row before confirming. New crew are added to your list.</p>
+          <div className="grid grid-cols-2 gap-ws-2 rounded-ws-sm bg-ws-steel-3 p-ws-1">
+            <button type="button" onClick={() => chooseMode('manual')} className={`flex items-center justify-center gap-ws-2 rounded-ws-sm px-ws-3 py-ws-2 text-ws-sm font-medium transition-colors ${mode === 'manual' ? 'bg-ws-gold text-ws-text-on-gold' : 'text-ws-text-muted hover:text-ws-text'}`}><UserPlus className="h-4 w-4" strokeWidth={1.5} aria-hidden /> Enter manually</button>
+            <button type="button" onClick={() => chooseMode('image')} className={`flex items-center justify-center gap-ws-2 rounded-ws-sm px-ws-3 py-ws-2 text-ws-sm font-medium transition-colors ${mode === 'image' ? 'bg-ws-gold text-ws-text-on-gold' : 'text-ws-text-muted hover:text-ws-text'}`}><Upload className="h-4 w-4" strokeWidth={1.5} aria-hidden /> Import from image</button>
+          </div>
 
           <input ref={uploadRef} type="file" accept="image/*" onChange={onFile} className="hidden" />
           <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={onFile} className="hidden" />
-          <div className="mt-ws-4 flex flex-wrap gap-ws-3">
-            <button type="button" onClick={() => uploadRef.current?.click()} disabled={parsing}
-              className="flex items-center gap-ws-2 rounded-ws-sm border border-ws-line-strong px-ws-4 py-ws-2 text-ws-sm font-medium text-ws-text transition-all hover:border-ws-gold hover:bg-ws-steel-3 disabled:opacity-60">
-              {parsing ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Upload className="h-4 w-4" strokeWidth={1.5} aria-hidden />}
-              {parsing ? 'Reading crew list…' : 'Upload image'}
-            </button>
-            <button type="button" onClick={() => cameraRef.current?.click()} disabled={parsing}
-              className="flex items-center gap-ws-2 rounded-ws-sm border border-ws-line-strong px-ws-4 py-ws-2 text-ws-sm font-medium text-ws-text transition-all hover:border-ws-gold hover:bg-ws-steel-3 disabled:opacity-60">
-              <Camera className="h-4 w-4" strokeWidth={1.5} aria-hidden /> Take photo
-            </button>
-          </div>
+
+          {mode === 'image' && (
+            <div
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => { e.preventDefault(); const file = e.dataTransfer.files[0]; if (file) void readFile(file) }}
+              className="mt-ws-4 rounded-ws-md border border-dashed border-ws-line-strong bg-ws-steel-inset p-ws-6 text-center"
+            >
+              <Upload className="mx-auto h-6 w-6 text-ws-gold" strokeWidth={1.5} aria-hidden />
+              <p className="mt-ws-2 text-ws-sm font-medium text-ws-text">Drop a crew-list image here</p>
+              <p className="mt-ws-1 text-ws-xs text-ws-text-muted">Or choose a file or take a photo. We’ll extract the crew, then you review every row.</p>
+              <div className="mt-ws-4 flex justify-center gap-ws-2">
+                <button type="button" onClick={() => uploadRef.current?.click()} disabled={parsing} className="flex items-center gap-ws-2 rounded-ws-sm border border-ws-line-strong px-ws-3 py-ws-2 text-ws-sm font-medium text-ws-text hover:border-ws-gold hover:bg-ws-steel-3 disabled:opacity-60">{parsing ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Upload className="h-4 w-4" strokeWidth={1.5} aria-hidden />}{parsing ? 'Reading…' : 'Choose image'}</button>
+                <button type="button" onClick={() => cameraRef.current?.click()} disabled={parsing} className="flex items-center gap-ws-2 rounded-ws-sm border border-ws-line-strong px-ws-3 py-ws-2 text-ws-sm font-medium text-ws-text hover:border-ws-gold hover:bg-ws-steel-3 disabled:opacity-60"><Camera className="h-4 w-4" strokeWidth={1.5} aria-hidden /> Take photo</button>
+              </div>
+            </div>
+          )}
 
           {error && <p role="alert" className="mt-ws-4 text-ws-sm text-ws-alert">{error}</p>}
           {notice && <p role="status" className="mt-ws-4 text-ws-sm text-ws-ok">{notice}</p>}

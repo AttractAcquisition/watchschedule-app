@@ -1,11 +1,12 @@
-// /dashboard — the product (frontend.md §4.5). Two regions — the watch calendar
-// and the per-crew fairness panel — plus the regenerate action. Renders inside
+// /dashboard — the product (frontend.md §4.5). The watch calendar is primary;
+// fairness is available on demand, keeping the captain's daily view focused.
+// Renders inside
 // the AppShell (top bar: vessel, tier badge, user menu). The client only READS
 // the current schedule + fairness ledger via RLS-scoped selects; it computes no
 // fairness or schedule math. (The Claude chatbot panel is Phase 10.)
 import { useCallback, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, Loader2 } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { AlertTriangle, Loader2, MoreHorizontal, X } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../auth/AuthGate'
 import { useDashboardData } from './useDashboardData'
@@ -16,12 +17,14 @@ import { CopyWhatsAppButton } from './CopyWhatsAppButton'
 import { ScheduleHistoryButton } from './ScheduleHistory'
 import { ScheduleChat } from './ScheduleChat'
 import { ScheduleExportButtons } from './ScheduleExportButtons'
+import { FairnessExportButtons } from './FairnessExportButtons'
 import { PrintLayer, usePrintWhenSet, type PrintTarget } from './PrintLayer'
 import { SchedulePrintDoc, FairnessPrintDoc } from './PrintDocuments'
 
 export default function Dashboard() {
   const { profile } = useAuth()
   const vesselId = profile?.vessel_id ?? undefined
+  const queryClient = useQueryClient()
   const tier = profile?.product_tier ?? undefined
   const { data, isLoading, isError } = useDashboardData(vesselId)
 
@@ -29,15 +32,35 @@ export default function Dashboard() {
   const { data: vessel } = useQuery({
     queryKey: ['vessel-name', vesselId],
     enabled: !!vesselId,
-    queryFn: async () => (await supabase.from('vessels').select('name').eq('id', vesselId!).maybeSingle()).data,
+    queryFn: async () => (await supabase.from('vessels').select('name,crew_change_warning_dismissed_at,schedule_coverage_warning_dismissed_at').eq('id', vesselId!).maybeSingle()).data,
     staleTime: 60_000,
   })
   const vesselName = vessel?.name ?? 'Vessel'
 
   // Browser-print export (PDF/Print) for the schedule + fairness surfaces.
   const [printTarget, setPrintTarget] = useState<PrintTarget>(null)
+  const [moreOpen, setMoreOpen] = useState(false)
+  const [fairnessOpen, setFairnessOpen] = useState(false)
+  const [coverageDismissedLocally, setCoverageDismissedLocally] = useState(false)
   const clearPrint = useCallback(() => setPrintTarget(null), [])
   usePrintWhenSet(printTarget, clearPrint)
+  const dismissCrewWarning = useMutation({
+    mutationFn: async () => {
+      if (!vesselId) throw new Error('No vessel')
+      const { error } = await supabase.from('vessels').update({ crew_change_warning_dismissed_at: new Date().toISOString() }).eq('id', vesselId)
+      if (error) throw error
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['vessel-name', vesselId] }),
+  })
+  const dismissCoverageWarning = useMutation({
+    mutationFn: async () => {
+      if (!vesselId) throw new Error('No vessel')
+      const { error } = await supabase.from('vessels').update({ schedule_coverage_warning_dismissed_at: new Date().toISOString() }).eq('id', vesselId)
+      if (error) throw error
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['vessel-name', vesselId] }),
+    onError: () => setCoverageDismissedLocally(false),
+  })
 
   if (isLoading) {
     return (
@@ -52,34 +75,78 @@ export default function Dashboard() {
 
   // Crew changed since the current schedule was generated? (edits/adds bump
   // updated_at past generated_at.) Gentle nudge to regenerate.
-  const crewChanged = !!data.schedule && data.crew.some((c) => c.updated_at > data.schedule!.generated_at)
+  const latestCrewChange = data.crew.reduce<string | null>((latest, crew) => !latest || crew.updated_at > latest ? crew.updated_at : latest, null)
+  const crewChanged = !!data.schedule && !!latestCrewChange && latestCrewChange > data.schedule.generated_at
+    && (!vessel?.crew_change_warning_dismissed_at || latestCrewChange > vessel.crew_change_warning_dismissed_at)
 
   return (
     <div className="space-y-ws-6">
-      <div className="flex items-center justify-between gap-ws-4">
+      <div className="flex flex-wrap items-end justify-between gap-ws-4">
         <div>
-          <p className="ws-eyebrow">— Dashboard</p>
-          <h1 className="mt-ws-1 font-display text-ws-xl tracking-ws-tight text-ws-offwhite">Watch overview</h1>
+          <h1 className="font-display text-ws-xl tracking-ws-tight text-ws-offwhite">Watch schedule</h1>
         </div>
-        <div className="flex flex-wrap items-center gap-ws-3">
-          <ScheduleHistoryButton data={data} />
-          <CopyWhatsAppButton data={data} />
-          <ScheduleExportButtons hasSchedule={!!data.schedule} onPrint={() => setPrintTarget('schedule')} />
+        <div className="relative flex items-center gap-ws-2">
           <RegenerateButton vesselId={vesselId} hasSchedule={!!data.schedule} />
+          <div className="flex items-center overflow-hidden rounded-ws-sm border border-ws-line-strong bg-ws-navy-deep shadow-ws-sm">
+            <ScheduleChat inline compact />
+            <span className="h-5 w-px bg-ws-line" aria-hidden />
+            <button type="button" onClick={() => setMoreOpen((open) => !open)} aria-expanded={moreOpen} aria-haspopup="menu" aria-label="More schedule actions" title="More schedule actions" className="flex h-10 w-10 items-center justify-center text-ws-text-muted transition-colors hover:bg-ws-steel-3 hover:text-ws-text">
+              <MoreHorizontal className="h-5 w-5" strokeWidth={1.5} aria-hidden />
+            </button>
+          </div>
+          {moreOpen && (
+            <div role="menu" className="absolute right-0 top-full z-30 mt-ws-2 flex w-56 flex-col gap-ws-1 rounded-ws-md border border-ws-line bg-ws-steel-2 p-ws-2 shadow-ws-lg">
+              <ScheduleHistoryButton data={data} />
+              <CopyWhatsAppButton data={data} />
+              <ScheduleExportButtons hasSchedule={!!data.schedule} onPrint={() => setPrintTarget('schedule')} />
+            </div>
+          )}
         </div>
       </div>
 
       {crewChanged && (
-        <div className="flex items-start gap-ws-2 rounded-ws-sm border border-ws-warn bg-ws-steel-2 p-ws-3">
-          <AlertTriangle className="mt-ws-1 h-4 w-4 shrink-0 text-ws-warn" strokeWidth={1.5} aria-hidden />
-          <p className="text-ws-sm text-ws-text">Crew has changed since the last generation — regenerate to update the schedule.</p>
+        <div className="relative flex items-start gap-ws-2 rounded-ws-sm border border-ws-warn bg-ws-steel-2 p-ws-3 pr-ws-11">
+          <div className="flex items-start gap-ws-2">
+            <AlertTriangle className="mt-ws-1 h-4 w-4 shrink-0 text-ws-warn" strokeWidth={1.5} aria-hidden />
+            <p className="text-ws-sm text-ws-text">Crew has changed since the last generation — regenerate to update the schedule.</p>
+          </div>
+          <button type="button" onClick={() => dismissCrewWarning.mutate()} disabled={dismissCrewWarning.isPending} aria-label="Dismiss crew-change notice" className="absolute right-ws-2 top-ws-2 flex h-8 w-8 items-center justify-center rounded-ws-sm text-ws-text-muted transition-all hover:bg-ws-steel-3 hover:text-ws-text disabled:opacity-50"><X className="h-4 w-4" strokeWidth={1.5} aria-hidden /></button>
         </div>
       )}
 
-      <WatchCalendar data={data} />
-      <FairnessPanel data={data} vesselName={vesselName} onPrint={() => setPrintTarget('fairness')} />
+      <WatchCalendar
+        data={data}
+        coverageWarningDismissedAt={coverageDismissedLocally ? new Date().toISOString() : vessel?.schedule_coverage_warning_dismissed_at ?? null}
+        onDismissCoverageWarning={() => { setCoverageDismissedLocally(true); dismissCoverageWarning.mutate() }}
+        dismissingCoverageWarning={dismissCoverageWarning.isPending}
+      />
 
-      <ScheduleChat />
+      <section className="flex flex-wrap items-center justify-between gap-ws-4 rounded-ws-md border border-ws-line bg-ws-steel p-ws-5 shadow-ws-md">
+        <div>
+          <p className="ws-eyebrow">— Fairness</p>
+          <h2 className="mt-ws-1 font-display text-ws-md font-semibold text-ws-offwhite">Crew balance at a glance</h2>
+          <p className="mt-ws-2 text-ws-sm text-ws-text-muted">{data.ledger.length > 0 ? `${data.ledger.length} current balance records, updated with your schedule.` : 'Generate a schedule to see crew balance.'}</p>
+        </div>
+        <button type="button" onClick={() => setFairnessOpen(true)} className="rounded-ws-sm border border-ws-line-strong px-ws-4 py-ws-2 text-ws-sm font-medium text-ws-text transition-all hover:border-ws-gold hover:bg-ws-steel-3">View fairness calculator</button>
+      </section>
+
+      {fairnessOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ws-navy-deep/70 p-ws-5" role="dialog" aria-modal="true" aria-labelledby="fairness-calculator-title">
+          <div className="max-h-[85vh] w-full max-w-5xl overflow-y-auto rounded-ws-lg border border-ws-line bg-ws-steel-2 p-ws-5 shadow-ws-lg">
+            <div className="mb-ws-4 flex items-center justify-between gap-ws-3">
+              <div>
+                <p className="ws-eyebrow">— Fairness calculator</p>
+                <h2 id="fairness-calculator-title" className="mt-ws-1 font-display text-ws-md font-semibold text-ws-offwhite">Per-crew balance</h2>
+              </div>
+              <div className="flex items-center gap-ws-2">
+                <FairnessExportButtons data={data} vesselName={vesselName} onPrint={() => setPrintTarget('fairness')} />
+                <button type="button" onClick={() => setFairnessOpen(false)} aria-label="Close fairness calculator" className="flex h-10 w-10 items-center justify-center rounded-ws-sm text-ws-text-muted hover:bg-ws-steel-3 hover:text-ws-text"><X className="h-4 w-4" strokeWidth={1.5} aria-hidden /></button>
+              </div>
+            </div>
+            <FairnessPanel data={data} vesselName={vesselName} onPrint={() => setPrintTarget('fairness')} showHeading={false} showExport={false} />
+          </div>
+        </div>
+      )}
 
       {printTarget && (
         <PrintLayer>

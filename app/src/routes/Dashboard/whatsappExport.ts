@@ -4,6 +4,7 @@
 // only re-presents existing assignments as day-keyed plain text for a WhatsApp paste.
 import { format, parseISO } from 'date-fns'
 import type { DashboardData } from './useDashboardData'
+import { scheduledDates } from './scheduledDates'
 
 const firstName = (full: string) => full.trim().split(/\s+/)[0] || full
 
@@ -25,21 +26,23 @@ export function dateRangeLabel(start: string, end: string): string {
 //   Mon 6 — Deck: Tom | Interior: Luke  (dual/triple)
 // Plain text only — no markdown, no emoji. Returns '' if there is no schedule.
 export function formatWhatsApp(data: DashboardData, vesselName: string): string {
-  const { schedule, assignments, lanes, crewById } = data
+  const { schedule, assignments, lanes, crewById, charters } = data
   if (!schedule) return ''
 
   const header = `${vesselName} — Watch Schedule | ${dateRangeLabel(schedule.start_date, schedule.end_date)}`
   const isSolo = lanes.length === 1 && lanes[0].kind === 'solo'
 
   // who stood (lane,date) — straight from the stored assignments
-  const byKey = new Map(assignments.map((a) => [`${a.watch_date}:${a.lane_id}`, a.crew_id]))
+  const isPaused = (date: string) => charters.some((c) => date >= c.start_date && date <= c.end_date)
+  const liveAssignments = assignments.filter((a) => !isPaused(a.watch_date))
+  const byKey = new Map(liveAssignments.map((a) => [`${a.watch_date}:${a.lane_id}`, a.crew_id]))
   const who = (date: string, laneId: string, blank: string) => {
     const id = byKey.get(`${date}:${laneId}`)
     if (!id) return blank
     return firstName(crewById.get(id)?.full_name ?? '?')
   }
 
-  const dates = [...new Set(assignments.map((a) => a.watch_date))].sort()
+  const dates = scheduledDates(data)
   const lines = dates.map((d) => {
     const dayLabel = format(parseISO(d), 'EEE d')
     if (isSolo) return `${dayLabel} — ${who(d, lanes[0].id, '(unfilled)')}`

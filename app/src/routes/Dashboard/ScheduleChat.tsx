@@ -11,7 +11,7 @@ import { ChatMarkdown } from './ChatMarkdown'
 
 interface Turn { role: 'user' | 'assistant'; content: string }
 
-export function ScheduleChat() {
+export function ScheduleChat({ inline = false, compact = false }: { inline?: boolean; compact?: boolean }) {
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState<Turn[]>([])
   const [input, setInput] = useState('')
@@ -46,9 +46,15 @@ export function ScheduleChat() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="fixed bottom-ws-6 right-ws-6 z-40 flex items-center gap-ws-2 rounded-ws-full bg-ws-gold px-ws-4 py-ws-3 font-ui font-semibold text-ws-text-on-gold shadow-ws-glow-gold transition-all hover:bg-ws-gold-bright"
+        aria-label={compact ? 'Ask schedule' : undefined}
+        title={compact ? 'Ask schedule' : undefined}
+        className={inline
+          ? compact
+            ? 'flex h-10 w-10 items-center justify-center text-ws-text-muted transition-colors hover:bg-ws-steel-3 hover:text-ws-text'
+            : 'flex min-h-[40px] items-center gap-ws-1 rounded-ws-sm border border-ws-line-strong px-ws-3 py-ws-2 text-ws-sm font-medium text-ws-text transition-all hover:border-ws-gold hover:bg-ws-steel-3'
+          : 'fixed bottom-ws-6 right-ws-6 z-40 flex items-center gap-ws-2 rounded-ws-full bg-ws-gold px-ws-4 py-ws-3 font-ui font-semibold text-ws-text-on-gold shadow-ws-glow-gold transition-all hover:bg-ws-gold-bright'}
       >
-        <MessageSquare className="h-5 w-5" strokeWidth={1.5} aria-hidden /> Ask about your schedule
+        <MessageSquare className={inline ? (compact ? 'h-5 w-5' : 'h-4 w-4') : 'h-5 w-5'} strokeWidth={1.5} aria-hidden /> {!compact && (inline ? 'Ask schedule' : 'Ask about your schedule')}
       </button>
     )
   }

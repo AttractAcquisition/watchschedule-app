@@ -8,14 +8,14 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, Loader2, Sparkles, Upload } from 'lucide-react'
+import { AlertTriangle, Loader2, Sparkles, Upload, X } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { queryClient } from '../../lib/queryClient'
 import { useAuth } from '../../auth/AuthGate'
 import { profileQueryKey } from '../../auth/useProfile'
 
 interface SeedMember { crew_id: string; total_watches: number; weekend_watches: number; friday_watches: number; fairness_score: number }
-interface SeedResult { seeded: boolean; lanes: { lane_id: string; members: SeedMember[] }[]; unmatched: string[]; records_extracted: number }
+interface SeedResult { seeded: boolean; members: SeedMember[]; unmatched: string[]; records_extracted: number }
 
 const extOf = (file: File) => {
   const fromName = file.name.includes('.') ? file.name.split('.').pop()!.toLowerCase() : ''
@@ -35,6 +35,7 @@ export default function StepGenerate() {
   const [seeding, setSeeding] = useState(false)
   const [seedError, setSeedError] = useState<string | null>(null)
   const [seed, setSeed] = useState<SeedResult | null>(null)
+  const [unmatchedDismissed, setUnmatchedDismissed] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   // crew_id -> name, to render the seed summary readably
@@ -62,7 +63,7 @@ export default function StepGenerate() {
       }
       const { data, error } = await supabase.functions.invoke<SeedResult>('seed-fairness', { body: { object_paths: objectPaths } })
       if (error) throw error
-      setSeed(data ?? null)
+      setSeed(data ?? null); setUnmatchedDismissed(false)
     } catch {
       setSeedError("We couldn't read those past schedules. You can skip seeding and generate from a clean slate.")
     } finally {
@@ -83,7 +84,7 @@ export default function StepGenerate() {
     }
   }
 
-  const seededCount = seed?.lanes.reduce((n, l) => n + l.members.length, 0) ?? 0
+  const seededCount = seed?.members.length ?? 0
 
   return (
     <div>
@@ -121,7 +122,7 @@ export default function StepGenerate() {
               <p role="status" className="text-ws-sm text-ws-ok">
                 Seeded {seededCount} crew member{seededCount === 1 ? '' : 's'} from {seed.records_extracted} historical watch{seed.records_extracted === 1 ? '' : 'es'}.
               </p>
-              {seed.lanes.some((l) => l.members.length > 0) && (
+              {seed.members.length > 0 && (
                 <div className="mt-ws-3 overflow-hidden rounded-ws-sm border border-ws-line">
                   <table className="w-full text-ws-sm">
                     <thead>
@@ -130,7 +131,7 @@ export default function StepGenerate() {
                       </tr>
                     </thead>
                     <tbody>
-                      {seed.lanes.flatMap((l) => l.members).map((m) => (
+                      {seed.members.map((m) => (
                         <tr key={m.crew_id} className="border-t border-ws-line">
                           <td className="px-ws-3 py-ws-2 text-ws-text">{crewNames?.get(m.crew_id) ?? m.crew_id.slice(0, 8)}</td>
                           <td className="px-ws-3 py-ws-2 font-mono text-ws-text-muted">{m.total_watches}</td>
@@ -143,13 +144,16 @@ export default function StepGenerate() {
                   </table>
                 </div>
               )}
-              {seed.unmatched.length > 0 && (
-                <div className="mt-ws-3 flex items-start gap-ws-2 rounded-ws-sm border border-ws-warn bg-ws-steel-3 p-ws-3">
-                  <AlertTriangle className="mt-ws-1 h-4 w-4 shrink-0 text-ws-warn" strokeWidth={1.5} aria-hidden />
-                  <p className="text-ws-sm text-ws-text">
-                    Couldn't match {seed.unmatched.length} name{seed.unmatched.length === 1 ? '' : 's'} to your crew:{' '}
-                    <span className="font-mono text-ws-warn">{seed.unmatched.join(', ')}</span>. Check spelling or add them as crew, then re-upload — these watches weren't seeded.
-                  </p>
+              {seed.unmatched.length > 0 && !unmatchedDismissed && (
+                <div className="relative mt-ws-3 flex items-start gap-ws-2 rounded-ws-sm border border-ws-warn bg-ws-steel-3 p-ws-3 pr-ws-11">
+                  <div className="flex items-start gap-ws-2">
+                    <AlertTriangle className="mt-ws-1 h-4 w-4 shrink-0 text-ws-warn" strokeWidth={1.5} aria-hidden />
+                    <p className="text-ws-sm text-ws-text">
+                      Couldn't match {seed.unmatched.length} name{seed.unmatched.length === 1 ? '' : 's'} to your crew:{' '}
+                      <span className="font-mono text-ws-warn">{seed.unmatched.join(', ')}</span>. Check spelling or add them as crew, then re-upload — these watches weren't seeded.
+                    </p>
+                  </div>
+                  <button type="button" onClick={() => setUnmatchedDismissed(true)} aria-label="Dismiss unmatched crew notice" className="absolute right-ws-2 top-ws-2 flex h-8 w-8 items-center justify-center rounded-ws-sm text-ws-text-muted transition-all hover:bg-ws-steel-2 hover:text-ws-text"><X className="h-4 w-4" strokeWidth={1.5} aria-hidden /></button>
                 </div>
               )}
             </div>

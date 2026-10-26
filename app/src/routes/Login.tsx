@@ -96,7 +96,7 @@ export default function Login() {
           — {mode === 'signin' ? 'Sign in' : 'Create account'}
         </p>
         <h1 className="mt-ws-1 font-display text-ws-lg tracking-ws-tight text-ws-offwhite">
-          {mode === 'signin' ? 'Welcome back to the bridge' : 'Set up your vessel'}
+          {mode === 'signin' ? 'Sign in to continue' : 'Set up your vessel'}
         </h1>
 
         <form onSubmit={onSubmit} className="mt-ws-5 space-y-ws-4">

@@ -7,8 +7,9 @@ import { format, parseISO } from 'date-fns'
 import { dateRangeLabel } from './whatsappExport'
 import type { DashboardData, Lane } from './useDashboardData'
 
-const DEPT_LABEL: Record<string, string> = { deck: 'Deck', interior: 'Interior', engineering: 'Engineering', officer: 'Officer' }
-const laneTitle = (l: Lane) => (l.department ? (DEPT_LABEL[l.department] ?? l.label) : l.label)
+import { fairnessGroups } from './fairnessGroups'
+import { scheduledDates } from './scheduledDates'
+const laneTitle = (l: Lane) => l.label
 
 function PrintHeader({ vesselName, eyebrow, range, tier }: { vesselName: string; eyebrow: string; range?: string; tier?: string }) {
   return (
@@ -36,11 +37,13 @@ function PrintFooter() {
 }
 
 export function SchedulePrintDoc({ data, vesselName, tier }: { data: DashboardData; vesselName: string; tier?: string }) {
-  const { schedule, assignments, lanes, crewById } = data
+  const { schedule, assignments, lanes, crewById, charters } = data
   const range = schedule ? dateRangeLabel(schedule.start_date, schedule.end_date) : undefined
-  const dates = [...new Set(assignments.map((a) => a.watch_date))].sort()
-  const scheduled = new Set(assignments.map((a) => a.watch_date))
-  const byKey = new Map(assignments.map((a) => [`${a.lane_id}:${a.watch_date}`, a.crew_id]))
+  const isPaused = (date: string) => charters.some((c) => date >= c.start_date && date <= c.end_date)
+  const liveAssignments = assignments.filter((a) => !isPaused(a.watch_date))
+  const dates = scheduledDates(data)
+  const scheduled = new Set(dates)
+  const byKey = new Map(liveAssignments.map((a) => [`${a.lane_id}:${a.watch_date}`, a.crew_id]))
   const who = (laneId: string, date: string) => {
     const id = byKey.get(`${laneId}:${date}`)
     if (id) return crewById.get(id)?.full_name ?? '—'
@@ -85,21 +88,21 @@ export function SchedulePrintDoc({ data, vesselName, tier }: { data: DashboardDa
 }
 
 export function FairnessPrintDoc({ data, vesselName, tier }: { data: DashboardData; vesselName: string; tier?: string }) {
-  const { schedule, lanes, crew, ledger } = data
+  const { schedule, ledger } = data
   const range = schedule ? dateRangeLabel(schedule.start_date, schedule.end_date) : undefined
-  const ledgerByKey = new Map(ledger.map((r) => [`${r.lane_id}:${r.crew_id}`, r]))
-  const isSolo = lanes.length === 1 && lanes[0].kind === 'solo'
-  const laneMembers = (lane: Lane) => crew.filter((c) => c.eligible && (lane.kind === 'solo' || c.department === lane.department))
-  const cols = ['Crew', 'Position', 'Score', 'Total', 'Wknd', 'Fri', 'Consec', 'Last on watch']
+  const ledgerByKey = new Map(ledger.map((r) => [r.crew_id, r]))
+  const groups = fairnessGroups(data)
+  const cols = ['Crew', 'Position', 'Score', 'Share', 'Total', 'Wknd', 'Fri', 'Consec', 'Last on watch']
 
   return (
     <article className="min-h-screen bg-ws-print-bg p-ws-6 font-ui text-ws-print-ink">
-      <PrintHeader vesselName={vesselName} eyebrow="Fairness — per-crew balance" range={range} tier={tier} />
-      {lanes.map((lane) => {
-        const members = laneMembers(lane)
+      <PrintHeader vesselName={vesselName} eyebrow="Vessel-wide fairness — includes projected watches" range={range} tier={tier} />
+      {ledger.some(r => r.history_estimated) && <p className="mb-ws-3 text-ws-xs text-ws-print-muted">Older availability is estimated. Department groups are presentation only.</p>}
+      {groups.map((group) => {
+        const members = group.members
         return (
-          <section key={lane.id} className="mb-ws-5">
-            {!isSolo && <p className="mb-ws-2 font-mono text-ws-xs uppercase tracking-ws-wide text-ws-print-gold">{laneTitle(lane)}</p>}
+          <section key={group.id} className="mb-ws-5">
+            {<p className="mb-ws-2 font-mono text-ws-xs uppercase tracking-ws-wide text-ws-print-gold">{group.label}</p>}
             {members.length === 0 ? (
               <p className="text-ws-sm text-ws-print-muted">No eligible crew in this lane.</p>
             ) : (
@@ -113,13 +116,14 @@ export function FairnessPrintDoc({ data, vesselName, tier }: { data: DashboardDa
                 </thead>
                 <tbody>
                   {members.map((c) => {
-                    const r = ledgerByKey.get(`${lane.id}:${c.id}`)
+                    const r = ledgerByKey.get(c.id)
                     const score = r?.fairness_score != null ? `${Math.round(r.fairness_score)}%` : '—'
                     return (
                       <tr key={c.id}>
                         <td className="border border-ws-print-line px-ws-2 py-ws-1 text-ws-print-ink">{c.full_name}</td>
                         <td className="border border-ws-print-line px-ws-2 py-ws-1 text-ws-print-muted">{c.position}</td>
                         <td className="border border-ws-print-line px-ws-2 py-ws-1 font-mono font-semibold text-ws-print-gold">{score}</td>
+                        <td className="border border-ws-print-line px-ws-2 py-ws-1 text-ws-print-muted">{r?.fairness_score == null ? '—' : r.balance === 'over' ? 'Above' : r.balance === 'under' ? 'Below' : 'Balanced'}</td>
                         <td className="border border-ws-print-line px-ws-2 py-ws-1 font-mono text-ws-print-ink">{r?.total_watches ?? 0}</td>
                         <td className="border border-ws-print-line px-ws-2 py-ws-1 font-mono text-ws-print-ink">{r?.weekend_watches ?? 0}</td>
                         <td className="border border-ws-print-line px-ws-2 py-ws-1 font-mono text-ws-print-ink">{r?.friday_watches ?? 0}</td>

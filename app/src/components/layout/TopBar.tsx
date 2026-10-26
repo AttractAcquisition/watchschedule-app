@@ -1,5 +1,5 @@
-// Top bar (branding.md §7): logo, vessel name + size (mono), product-tier badge
-// (gold outline), and the ONLY two nav items — Dashboard and Settings. Payment
+// Top bar (branding.md §7): logo, vessel name + size (mono), and the ONLY two
+// nav items — Dashboard and Settings. Payment
 // and onboarding are flow states, never nav items. User menu = sign out.
 import { NavLink } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -56,11 +56,6 @@ export default function TopBar() {
           <NavLink to="/settings" className={navLink}>
             Settings
           </NavLink>
-          {profile?.product_tier && (
-            <span className="hidden rounded-ws-full border border-ws-gold px-ws-3 py-ws-1 font-mono text-ws-xs uppercase tracking-ws-wide text-ws-gold sm:inline">
-              {profile.product_tier}
-            </span>
-          )}
           <button
             type="button"
             onClick={signOut}

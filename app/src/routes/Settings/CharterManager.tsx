@@ -7,14 +7,16 @@
 // apply on the next regeneration. Tokens only.
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { format, parseISO } from 'date-fns'
-import { CalendarClock, Loader2, Plus, Trash2, Undo2 } from 'lucide-react'
+import { format, parseISO, subDays } from 'date-fns'
+import { CalendarClock, Loader2, Pause, Play, Plus, Trash2, Undo2 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../auth/AuthGate'
 import type { Database } from '../../types/db'
 
-type Charter = Pick<Database['public']['Tables']['charter_periods']['Row'], 'id' | 'start_date' | 'end_date' | 'label' | 'status'>
+type Charter = Pick<Database['public']['Tables']['charter_periods']['Row'], 'id' | 'start_date' | 'end_date' | 'is_immediate' | 'label' | 'status'>
 const fmt = (d: string) => format(parseISO(d), 'd MMM yyyy')
+const today = () => format(new Date(), 'yyyy-MM-dd')
+const OPEN_ENDED_DATE = '9999-12-31'
 
 export function CharterManager() {
   const { profile } = useAuth()
@@ -26,7 +28,7 @@ export function CharterManager() {
     queryKey: key,
     enabled: !!vesselId,
     queryFn: async () => {
-      const { data, error } = await supabase.from('charter_periods').select('id,start_date,end_date,label,status').eq('vessel_id', vesselId!).order('start_date')
+      const { data, error } = await supabase.from('charter_periods').select('id,start_date,end_date,is_immediate,label,status').eq('vessel_id', vesselId!).order('start_date')
       if (error) throw error
       return data as Charter[]
     },
@@ -36,6 +38,7 @@ export function CharterManager() {
   const [end, setEnd] = useState('')
   const [label, setLabel] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState<'pause' | 'unpause' | null>(null)
   // invalidate both the settings list and the dashboard (calendar Paused state)
   const invalidate = () => { qc.invalidateQueries({ queryKey: key }); qc.invalidateQueries({ queryKey: ['dashboard', vesselId] }) }
 
@@ -60,19 +63,59 @@ export function CharterManager() {
     onSuccess: invalidate, onError: () => setError('Could not delete the charter.'),
   })
 
-  const busy = addM.isPending || cancelM.isPending || restoreM.isPending || deleteM.isPending
+  // An immediate pause is an open-ended booked charter. Dashboard, print, and
+  // WhatsApp already use booked charter dates as paused, so invalidation applies
+  // this instantly without creating a replacement schedule.
+  const immediatePauseM = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from('charter_periods').insert({
+        vessel_id: vesselId!, start_date: today(), end_date: OPEN_ENDED_DATE,
+        is_immediate: true, label: 'Immediate schedule pause',
+      })
+      if (error) throw error
+    },
+    onSuccess: () => { setConfirming(null); setError(null); invalidate() },
+    onError: () => { setConfirming(null); setError('Could not pause the schedule.') },
+  })
+  const unpauseM = useMutation({
+    mutationFn: async (charter: Charter) => {
+      // Same-day unpause must cancel the record because a date range cannot end
+      // before it starts. Either path reveals today's already-stored rota.
+      const changes = charter.start_date === today()
+        ? { status: 'cancelled' as const }
+        : { end_date: format(subDays(new Date(), 1), 'yyyy-MM-dd') }
+      const { error } = await supabase.from('charter_periods').update(changes).eq('id', charter.id)
+      if (error) throw error
+    },
+    onSuccess: () => { setConfirming(null); setError(null); invalidate() },
+    onError: () => { setConfirming(null); setError('Could not unpause the schedule.') },
+  })
+
+  const busy = addM.isPending || cancelM.isPending || restoreM.isPending || deleteM.isPending || immediatePauseM.isPending || unpauseM.isPending
   const canAdd = !!start && !!end && end >= start
+  const activeImmediatePause = charters?.find((c) => c.is_immediate && c.status === 'booked' && c.start_date <= today() && c.end_date >= today())
 
   return (
     <section className="rounded-ws-md border border-ws-line bg-ws-steel p-ws-5 shadow-ws-md">
-      <div className="flex items-center gap-ws-2">
-        <CalendarClock className="h-4 w-4 text-ws-gold" strokeWidth={1.5} aria-hidden />
-        <div>
-          <p className="ws-eyebrow">— Charters</p>
-          <h2 className="mt-ws-1 font-display text-ws-md font-semibold text-ws-offwhite">Charter mode</h2>
+      <div className="flex items-center justify-between gap-ws-3">
+        <div className="flex items-center gap-ws-2">
+          <CalendarClock className="h-4 w-4 text-ws-gold" strokeWidth={1.5} aria-hidden />
+          <div>
+            <p className="ws-eyebrow">— Charters</p>
+            <h2 className="mt-ws-1 font-display text-ws-md font-semibold text-ws-offwhite">Charter mode</h2>
+          </div>
         </div>
+        {activeImmediatePause ? (
+          <button type="button" disabled={busy} onClick={() => setConfirming('unpause')} className="flex shrink-0 items-center gap-ws-1 rounded-ws-sm border border-ws-line-strong px-ws-2 py-ws-1 text-ws-xs font-semibold text-ws-text transition-all hover:border-ws-gold hover:bg-ws-steel-3 disabled:opacity-60">
+            {unpauseM.isPending ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : <Play className="h-3 w-3" strokeWidth={1.5} aria-hidden />} Unpause
+          </button>
+        ) : (
+          <button type="button" disabled={busy} onClick={() => setConfirming('pause')} className="flex shrink-0 items-center gap-ws-1 rounded-ws-sm bg-ws-warn px-ws-2 py-ws-1 text-ws-xs font-semibold text-ws-text-on-gold transition-all hover:opacity-90 disabled:opacity-60">
+            {immediatePauseM.isPending ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : <Pause className="h-3 w-3" strokeWidth={1.5} aria-hidden />} Pause immediately
+          </button>
+        )}
       </div>
-      <p className="mt-ws-2 text-ws-sm text-ws-text-muted">Pause the watch rotation for a charter. The schedule resumes from the right crew afterward — fairness is preserved. Changes apply when you regenerate.</p>
+      <p className="mt-ws-2 text-ws-sm text-ws-text-muted">Plan a charter pause below. The immediate control pauses the live rota without regenerating it.</p>
 
       {/* add */}
       <form
@@ -109,7 +152,8 @@ export function CharterManager() {
               <div key={c.id} className={`flex flex-wrap items-center justify-between gap-ws-3 rounded-ws-sm border border-ws-line bg-ws-steel-2 px-ws-4 py-ws-3 ${cancelled ? 'opacity-60' : ''}`}>
                 <div className="min-w-0">
                   <p className="flex items-center gap-ws-2 text-ws-sm font-medium text-ws-text">
-                    <span className="font-mono">{fmt(c.start_date)} – {fmt(c.end_date)}</span>
+                    <span className="font-mono">{c.is_immediate && c.status === 'booked' && c.end_date === OPEN_ENDED_DATE ? `${fmt(c.start_date)} – until unpaused` : `${fmt(c.start_date)} – ${fmt(c.end_date)}`}</span>
+                    {c.is_immediate && <span className="rounded-ws-full border border-ws-warn px-ws-2 font-mono text-ws-xs uppercase tracking-ws-wide text-ws-warn">Immediate</span>}
                     {cancelled && <span className="rounded-ws-full border border-ws-line-strong px-ws-2 font-mono text-ws-xs uppercase tracking-ws-wide text-ws-text-muted">Cancelled</span>}
                   </p>
                   {c.label && <p className="mt-ws-1 truncate text-ws-xs text-ws-text-muted">{c.label}</p>}
@@ -135,6 +179,26 @@ export function CharterManager() {
           <p className="text-ws-sm text-ws-text-faint">No charters. Add one to pause the rotation for a charter period.</p>
         )}
       </div>
+
+      {confirming && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ws-navy-deep/70 p-ws-5" role="dialog" aria-modal="true" aria-labelledby="immediate-pause-title">
+          <div className="w-full max-w-sm rounded-ws-lg border border-ws-line bg-ws-steel-2 p-ws-6 shadow-ws-lg">
+            <p className="ws-eyebrow">— Charter mode</p>
+            <h3 id="immediate-pause-title" className="mt-ws-1 font-display text-ws-md font-semibold text-ws-offwhite">{confirming === 'pause' ? 'Pause the schedule immediately?' : 'Unpause the schedule?'}</h3>
+            <p className="mt-ws-3 text-ws-sm text-ws-text-muted">
+              {confirming === 'pause'
+                ? 'All watches are marked paused from today. The current schedule is kept exactly as it is and will not regenerate.'
+                : 'Watches resume from today using the current stored schedule. No new schedule will be generated.'}
+            </p>
+            <div className="mt-ws-5 flex justify-end gap-ws-3">
+              <button type="button" disabled={busy} onClick={() => setConfirming(null)} className="rounded-ws-sm border border-ws-line-strong px-ws-4 py-ws-2 text-ws-sm text-ws-text hover:bg-ws-steel-3">Cancel</button>
+              <button type="button" disabled={busy} onClick={() => confirming === 'pause' ? immediatePauseM.mutate() : activeImmediatePause && unpauseM.mutate(activeImmediatePause)} className="rounded-ws-sm bg-ws-gold px-ws-4 py-ws-2 text-ws-sm font-semibold text-ws-text-on-gold hover:bg-ws-gold-bright disabled:opacity-60">
+                {busy && <Loader2 className="mr-ws-2 inline h-4 w-4 animate-spin" aria-hidden />}{confirming === 'pause' ? 'Pause now' : 'Unpause'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   )
 }
