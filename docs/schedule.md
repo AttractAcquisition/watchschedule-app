@@ -1,3 +1,5 @@
+> Rota V2 amendment (22 September 2026): [rota-v2.md](./rota-v2.md) supersedes older department limits, disjoint grouping, per-lane fairness and generation persistence described below.
+
 <!-- WatchSchedule spec set — v2 (cross-referenced & seam-verified). Document 5 of 6: schedule. Owns generation orchestration. Seam with fairness.md: selectCandidate(lane, date, dayType, isFriday, ledger, alreadyAssigned) -> { crew_id, reason_code, detail }. -->
 # schedule.md — WatchSchedule Generation Engine
 
@@ -88,6 +90,7 @@ A **charter period** is a date range during which the watch rotation is **paused
 - **Horizon** stays a calendar window (`fromDate + horizon_weeks*7`); a charter inside it consumes calendar days that simply receive no watches — the horizon is **not** auto-extended (raise `horizon_weeks` for more post-charter coverage).
 - **`is_current`** unchanged: regeneration still yields exactly one current schedule; charters only change which dates within it get watches.
 - **Regeneration** reads booked charters and skips them; regenerating from a date inside a charter starts with skipped days until `end_date`. Overlapping/adjacent charters are handled by union (`inCharter(date)` = date ∈ any booked charter).
+- **Immediate pause:** a captain may create an `is_immediate=true` booked charter beginning today and ending at `9999-12-31`. The live calendar and schedule exports immediately treat the current date as paused; no schedule is regenerated or rewritten. Unpausing closes that record before the current date (or cancels it when paused and unpaused on the same date), so the stored assignments reappear from the date of unpause. This is deliberately a live display/operating pause, not a fairness replay.
 
 ---
 

@@ -16,9 +16,9 @@ import type { Tier } from './watchSettings'
 const RANK: Record<Tier, number> = { solo: 1, dual: 2, triple: 3 }
 // B1 pricing (monthly). Marketing site = source of truth.
 const TIERS: { tier: Tier; name: string; monthly: number; lanes: string }[] = [
-  { tier: 'solo', name: 'Solo Watch', monthly: 39, lanes: '1 lane · all eligible crew' },
-  { tier: 'dual', name: 'Dual Watch', monthly: 99, lanes: 'up to 2 lanes · pick 1–2 departments' },
-  { tier: 'triple', name: 'Triple Watch', monthly: 199, lanes: 'up to 3 lanes · pick 1–3 departments' },
+  { tier: 'solo', name: 'Solo Watch', monthly: 39, lanes: '1 lane · any department combination' },
+  { tier: 'dual', name: 'Dual Watch', monthly: 99, lanes: 'up to 2 lanes · any department combination' },
+  { tier: 'triple', name: 'Triple Watch', monthly: 199, lanes: 'up to 3 lanes · any department combination' },
 ]
 const TIMEOUT_MS = 60_000
 const POLL_MS = 2_000
@@ -120,7 +120,7 @@ export function UpgradePlan() {
             </div>
             <p className="mt-ws-3 text-ws-sm text-ws-text-muted">
               Upgrade to <span className="text-ws-text">{TIERS.find((t) => t.tier === confirmTier)?.name}</span> (€{TIERS.find((t) => t.tier === confirmTier)?.monthly}/mo)?
-              Your subscription updates now and you pay the prorated difference. After upgrading you'll choose the new watch departments.
+              Your subscription updates now and you pay the prorated difference. After upgrading you can add more watch lanes.
             </p>
             <div className="mt-ws-5 flex justify-end gap-ws-3">
               <button type="button" onClick={() => setConfirmTier(null)} className="rounded-ws-sm px-ws-4 py-ws-2 text-ws-sm text-ws-text-muted hover:bg-ws-steel-3 hover:text-ws-text">Cancel</button>

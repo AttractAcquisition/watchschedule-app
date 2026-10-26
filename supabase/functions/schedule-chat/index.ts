@@ -24,6 +24,9 @@ Answer ONLY from the VESSEL DATA provided below. Rules:
   date/crew (its reason_code + detail) — explain the actual recorded reason; never invent one.
 - If the question cannot be answered from this data (e.g. weather, other vessels,
   anything not present), say plainly that it is not in this schedule's data. Do NOT fabricate.
+- Fairness is vessel-wide, never per lane or department. Departments may overlap across lanes, but a person can only work once per date.
+- Explain unequal restricted pools honestly: the engine cannot make a two-person dedicated pool work as rarely as a five-person dedicated pool when both must fill one daily watch.
+- Fairness includes projected watches. If history_estimated is true, older availability is estimated.
 - You only ever have THIS vessel's data; you cannot access any other vessel.`
 
 Deno.serve(async (req) => {
@@ -48,10 +51,13 @@ Deno.serve(async (req) => {
     const [{ data: crewRows }, { data: laneRows }, { data: sched }] = await Promise.all([
       admin.from('crew_members').select('id,full_name,position,department').eq('vessel_id', vesselId),
       admin.from('watch_lanes').select('id,label,department,active').eq('vessel_id', vesselId),
-      admin.from('schedules').select('id,start_date,end_date').eq('vessel_id', vesselId).eq('is_current', true).maybeSingle(),
+      admin.from('schedules').select('id,start_date,end_date,engine_version,rota_snapshot').eq('vessel_id', vesselId).eq('is_current', true).maybeSingle(),
     ])
     const crewById = new Map((crewRows ?? []).map((c) => [c.id, c]))
-    const laneById = new Map((laneRows ?? []).map((l) => [l.id, l]))
+    const snapshot = sched?.rota_snapshot as { lanes?: { id: string; label: string; departments: string[] }[] } | null
+    const { data: memberships } = await admin.from('lane_departments').select('lane_id,department').eq('vessel_id', vesselId)
+    const contextLanes = snapshot?.lanes ?? (laneRows ?? []).filter(l => l.active).map(l => ({ ...l, departments: (memberships ?? []).filter(m => m.lane_id === l.id).map(m => m.department) }))
+    const laneById = new Map(contextLanes.map(l => [l.id, l]))
     const crewLabel = (id: string | null) => { const c = id ? crewById.get(id) : null; return c ? `${initials(c.full_name)} (${c.full_name})` : '—' }
     const laneLabel = (id: string) => laneById.get(id)?.label ?? '—'
 
@@ -66,21 +72,21 @@ Deno.serve(async (req) => {
       events = (ev ?? []).map((e) => {
         const d = (e.detail ?? {}) as { candidates?: { crew_id: string; cost: number }[]; excluded?: { crew_id: string; reason: string }[] }
         return {
-          date: e.watch_date, day: e.watch_date ? dow(e.watch_date) : null, lane: laneLabel(e.lane_id), crew: crewLabel(e.crew_id), reason_code: e.reason_code,
+          date: e.watch_date, day: e.watch_date ? dow(e.watch_date) : null, lane: laneLabel(e.lane_id), crew: crewLabel(e.crew_id), reason_code: e.reason_code, detail: e.detail,
           candidates: (d.candidates ?? []).map((c) => ({ crew: crewLabel(c.crew_id), cost: c.cost })),
           excluded: (d.excluded ?? []).map((x) => ({ crew: crewLabel(x.crew_id), reason: x.reason })),
         }
       })
     }
-    const { data: ledger } = await admin.from('fairness_ledger').select('lane_id,crew_id,total_watches,weekday_watches,weekend_watches,friday_watches,weekday_opportunities,weekend_opportunities,friday_opportunities,last_watch_date,consecutive_run,fairness_score').eq('vessel_id', vesselId)
+    const { data: ledger } = await admin.from('vessel_fairness').select('crew_id,total_watches,weekday_watches,weekend_watches,friday_watches,weekday_opportunities,weekend_opportunities,friday_opportunities,last_watch_date,consecutive_run,fairness_score,balance,history_estimated').eq('vessel_id', vesselId)
     // C2 — include opportunity denominators so the assistant explains fairness from
     // honest RATES ("stood X of Y available weekends"), not absolute counts.
-    const ledgerCtx = (ledger ?? []).map((l) => ({ lane: laneLabel(l.lane_id), crew: crewLabel(l.crew_id), total_watches: l.total_watches, weekday_watches: l.weekday_watches, weekend_watches: l.weekend_watches, friday_watches: l.friday_watches, weekday_opportunities: l.weekday_opportunities, weekend_opportunities: l.weekend_opportunities, friday_opportunities: l.friday_opportunities, last_watch_date: l.last_watch_date, consecutive_run: l.consecutive_run, fairness_score: l.fairness_score }))
+    const ledgerCtx = (ledger ?? []).map((l) => ({ scope: 'vessel', balance: l.balance, history_estimated: l.history_estimated, crew: crewLabel(l.crew_id), total_watches: l.total_watches, weekday_watches: l.weekday_watches, weekend_watches: l.weekend_watches, friday_watches: l.friday_watches, weekday_opportunities: l.weekday_opportunities, weekend_opportunities: l.weekend_opportunities, friday_opportunities: l.friday_opportunities, last_watch_date: l.last_watch_date, consecutive_run: l.consecutive_run, fairness_score: l.fairness_score }))
 
     const context = {
       vessel_name: vessel.name,
       schedule: sched ? { start_date: sched.start_date, end_date: sched.end_date } : null,
-      lanes: (laneRows ?? []).filter((l) => l.active).map((l) => ({ label: l.label, department: l.department })),
+      lanes: contextLanes,
       crew: (crewRows ?? []).map((c) => ({ initials: initials(c.full_name), full_name: c.full_name, position: c.position, department: c.department })),
       assignments, fairness_ledger: ledgerCtx, fairness_events: events,
     }

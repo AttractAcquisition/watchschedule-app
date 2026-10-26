@@ -45,6 +45,8 @@ export default function StepCrew() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [captainName, setCaptainName] = useState(profile?.full_name ?? '')
+  const [username, setUsername] = useState(profile?.username ?? '')
   const fileRef = useRef<HTMLInputElement>(null)
 
   function patch(key: string, next: Partial<Row>) {
@@ -87,6 +89,10 @@ export default function StepCrew() {
 
   async function onConfirm() {
     const clean = rows.map((r) => ({ ...r, full_name: r.full_name.trim(), position: r.position.trim() }))
+    const cleanCaptainName = captainName.trim()
+    const cleanUsername = username.trim().toLowerCase()
+    if (!cleanCaptainName) return setError('Enter the captain name for this account.')
+    if (!/^[a-z0-9][a-z0-9_-]{2,31}$/.test(cleanUsername)) return setError('Username must be 3–32 lowercase letters, numbers, hyphens, or underscores.')
     if (clean.length === 0) return setError('Add at least one crew member.')
     if (clean.some((r) => !r.full_name || !r.position)) return setError('Every crew member needs a name and a position.')
     if (!vesselId || !userId) return setError('Session not ready — please refresh.')
@@ -97,7 +103,7 @@ export default function StepCrew() {
         clean.map((r) => ({ vessel_id: vesselId, full_name: r.full_name, position: r.position, department: r.department }))
       )
       if (insert.error) throw insert.error
-      const adv = await supabase.from('profiles').update({ onboarding_step: 'settings' }).eq('id', userId)
+      const adv = await supabase.from('profiles').update({ full_name: cleanCaptainName, username: cleanUsername, onboarding_step: 'settings' }).eq('id', userId)
       if (adv.error) throw adv.error
       await queryClient.invalidateQueries({ queryKey: profileQueryKey(userId) }) // -> stepper advances
     } catch {
@@ -113,6 +119,15 @@ export default function StepCrew() {
       <p className="mt-ws-2 text-ws-sm text-ws-text-muted">
         Snap a photo of your crew list to read it automatically, or add crew by hand. Review every row — you confirm.
       </p>
+
+      <div className="mt-ws-5 grid gap-ws-3 rounded-ws-sm border border-ws-line bg-ws-steel-2 p-ws-3 sm:grid-cols-2">
+        <label className="text-ws-xs text-ws-text-muted">Captain name
+          <input value={captainName} onChange={(e) => setCaptainName(e.target.value)} autoComplete="name" placeholder="Alex Morgan" className="mt-ws-1 w-full rounded-ws-sm border border-ws-line bg-ws-steel-3 px-ws-3 py-ws-2 text-ws-sm text-ws-text placeholder:text-ws-text-faint focus:border-ws-gold focus:outline-none" />
+        </label>
+        <label className="text-ws-xs text-ws-text-muted">Username
+          <input value={username} onChange={(e) => setUsername(e.target.value.toLowerCase())} autoComplete="username" spellCheck={false} placeholder="alex.morgan" className="mt-ws-1 w-full rounded-ws-sm border border-ws-line bg-ws-steel-3 px-ws-3 py-ws-2 text-ws-sm text-ws-text placeholder:text-ws-text-faint focus:border-ws-gold focus:outline-none" />
+        </label>
+      </div>
 
       {/* Input paths */}
       <div className="mt-ws-5 flex flex-wrap gap-ws-3">

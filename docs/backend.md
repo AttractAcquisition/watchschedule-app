@@ -1,3 +1,5 @@
+> Rota V2 amendment (22 September 2026): [rota-v2.md](./rota-v2.md) supersedes older department limits, disjoint grouping, per-lane fairness and generation persistence described below.
+
 <!-- WatchSchedule spec set — v2 (cross-referenced & seam-verified). Document 3 of 6: backend. AUTHORITATIVE for data contracts; on conflict this doc wins for behaviour. -->
 # backend.md — WatchSchedule Backend Architecture
 
@@ -66,6 +68,9 @@ create table vessels (
   owner_id      uuid not null references auth.users(id) on delete cascade,
   name          text not null default 'My Vessel',
   length_m      numeric,                      -- e.g. 72
+  crew_change_warning_dismissed_at timestamptz, -- dashboard prompt acknowledgement
+  schedule_coverage_warning_dismissed_at timestamptz, -- schedule coverage prompt acknowledgement
+  watch_settings_reconciliation_dismissed_at timestamptz, -- settings prompt acknowledgement
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now(),
   unique(owner_id)                            -- one vessel per user (v1)
@@ -313,6 +318,7 @@ create table charter_periods (
   start_date  date not null,
   end_date    date not null,
   label       text,
+  is_immediate boolean not null default false, -- captain-triggered open-ended live pause
   status      charter_status not null default 'booked',
   created_at  timestamptz not null default now(),
   constraint charter_dates_ordered check (end_date >= start_date)

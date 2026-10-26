@@ -12,7 +12,7 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../auth/AuthGate'
 import { WatchCalendar } from './WatchCalendar'
 import { deriveScheduleVersions, type HistSchedule } from './scheduleVersions'
-import type { Assignment, DashboardData, Lane } from './useDashboardData'
+import { scheduleLanes, type Assignment, type DashboardData, type Lane } from './useDashboardData'
 
 export function ScheduleHistoryButton({ data }: { data: DashboardData }) {
   const { profile } = useAuth()
@@ -24,7 +24,7 @@ export function ScheduleHistoryButton({ data }: { data: DashboardData }) {
     queryKey: ['schedule_history', vesselId],
     enabled: !!vesselId && open,
     queryFn: async () => {
-      const { data, error } = await supabase.from('schedules').select('id,generated_at,start_date,end_date,is_current,horizon_weeks').eq('vessel_id', vesselId!)
+      const { data, error } = await supabase.from('schedules').select('id,generated_at,start_date,end_date,is_current,horizon_weeks,rota_snapshot').eq('vessel_id', vesselId!)
       if (error) throw error
       return data as HistSchedule[]
     },
@@ -47,9 +47,7 @@ export function ScheduleHistoryButton({ data }: { data: DashboardData }) {
   // build a read-only DashboardData for the selected historical schedule
   const histData: DashboardData | null = useMemo(() => {
     if (!selected || !histAssignments) return null
-    const laneById = new Map((allLanes ?? []).map((l) => [l.id, l]))
-    const laneIds = [...new Set(histAssignments.map((a) => a.lane_id))]
-    const lanes = laneIds.map((id) => laneById.get(id)).filter((l): l is Lane => !!l).sort((a, b) => a.label.localeCompare(b.label))
+    const lanes = scheduleLanes(selected.rota_snapshot, allLanes ?? [], histAssignments)
     return { schedule: { id: selected.id, start_date: selected.start_date, end_date: selected.end_date, horizon_weeks: selected.horizon_weeks, generated_at: selected.generated_at }, assignments: histAssignments, ledger: [], crew: data.crew, lanes, crewById: data.crewById, charters: [], leave: [] }
   }, [selected, histAssignments, allLanes, data.crew, data.crewById])
 

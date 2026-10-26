@@ -1,3 +1,5 @@
+> Rota V2 amendment (22 September 2026): [rota-v2.md](./rota-v2.md) supersedes older department limits, disjoint grouping, per-lane fairness and generation persistence described below.
+
 <!-- WatchSchedule spec set — v2 (cross-referenced & seam-verified). Document 4 of 6: fairness. Owns the definition of fairness + candidate selection. Seam with schedule.md: selectCandidate(lane, date, dayType, isFriday, ledger, alreadyAssigned). -->
 # fairness.md — WatchSchedule Fairness Engine
 
@@ -169,12 +171,15 @@ spread       = max(stddev(burden over lane), epsilon)   # avoid divide-by-zero o
 # but we surface direction in the breakdown (over/under), while the score measures closeness to balance.
 
 z            = deviation / spread
-fairness_score(member) = clamp( 100 - (abs(z) * K), 0, 100 )      # K defaults to 25
+fairness_score(member) = clamp( 100 - (abs(z) * K), 0, 100 )      # K defaults to 12
 ```
 
 > **C2 amendment — score over the burden RATE.** `burden` above is replaced by a rate measure: `(burden ÷ opportunities_total) × meanOpp_lane`, where `opportunities_total = weekday_opportunities + weekend_opportunities` and `meanOpp_lane` is the lane's average opportunity count. The **relative structure** is the rate (so the score reflects watches-per-availability — a later joiner who has done their share reads ~100, same as a long-tenured peer); multiplying by `meanOpp_lane` restores **count magnitude** so the `EPSILON` spread-floor (a constant, unchanged) calibrates exactly as before. With EQUAL availability `opportunities_total == meanOpp_lane`, so the measure reduces **exactly** to the count `burden` and the 0–100 score is byte-identical to pre-C2. A member with **no opportunities yet** (`opportunities_total = 0`, e.g. just added) is shown **100 / not-owed** and excluded from the lane's spread (no re-introduced dumping).
 
-- `K` is a scaling constant (default 25) so that being one standard deviation from the mean costs ~25 points. Tune centrally.
+- `K` is a scaling constant (default 12). The lower scale prevents a one-watch
+  integer difference in a short, otherwise even season from appearing as a severe
+  failure; the expanded fairness view also shows absolute watches versus the vessel
+  average. Tune centrally.
 - **Interpretation for the UI** (drives the gauge colour from `branding.md`):
   - **>= 85** -> sea green (`--ws-fair-high`): well balanced.
   - **70–84** -> gold (`--ws-fair-mid`): slightly off balance.
@@ -273,7 +278,7 @@ W_FRIDAY_SELECT  = 2.0     # extra penalty per existing Friday when assigning a 
 RECENCY_NUDGE    = 0.1     # tiny tie-shaper for very-recent last_watch_date
 
 # Score scaling
-K                = 25      # points lost per 1 std-dev from lane mean
+K                = 12      # points lost per 1 std-dev from vessel mean
 EPSILON          = 0.5     # spread floor to avoid divide-by-zero
 SCORE_HIGH       = 85      # >= -> sea green
 SCORE_MID        = 70      # 70-84 -> gold; < -> muted red

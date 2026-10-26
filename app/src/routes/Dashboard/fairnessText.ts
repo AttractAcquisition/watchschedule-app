@@ -1,33 +1,18 @@
-// B3 — Fairness → plain text (WhatsApp/clipboard). PURE, read-only over the
-// fairness_ledger + crew the dashboard already holds. Mirrors the on-screen
-// FairnessPanel grouping (Solo = one pool; Dual/Triple = per selected department
-// lane). Recomputes nothing — scores come straight from the ledger. Reuses the
-// A1 clipboard pattern at the call site (writeClipboard + fallback).
 import { dateRangeLabel } from './whatsappExport'
-import type { DashboardData, Lane } from './useDashboardData'
-
-const DEPT_LABEL: Record<string, string> = { deck: 'Deck', interior: 'Interior', engineering: 'Engineering', officer: 'Officer' }
-
+import type { DashboardData } from './useDashboardData'
+import { fairnessGroups } from './fairnessGroups'
 export function formatFairnessText(data: DashboardData, vesselName: string): string {
-  const { lanes, crew, ledger, schedule } = data
-  const ledgerByKey = new Map(ledger.map((r) => [`${r.lane_id}:${r.crew_id}`, r]))
-  const isSolo = lanes.length === 1 && lanes[0].kind === 'solo'
-  const range = schedule ? dateRangeLabel(schedule.start_date, schedule.end_date) : ''
-  const header = `${vesselName} — Fairness summary${range ? ` | ${range}` : ''}`
-
-  const laneMembers = (lane: Lane) =>
-    crew.filter((c) => c.eligible && (lane.kind === 'solo' || c.department === lane.department))
-
-  const lines: string[] = []
-  for (const lane of lanes) {
-    if (!isSolo) lines.push('', lane.department ? (DEPT_LABEL[lane.department] ?? lane.label) : lane.label)
-    const members = laneMembers(lane)
-    if (members.length === 0) { lines.push('- (no eligible crew)'); continue }
-    for (const c of members) {
-      const r = ledgerByKey.get(`${lane.id}:${c.id}`)
-      const score = r?.fairness_score != null ? `${Math.round(r.fairness_score)}%` : '—'
-      lines.push(`- ${c.full_name}: ${score} (watches ${r?.total_watches ?? 0}, wknd ${r?.weekend_watches ?? 0}, Fri ${r?.friday_watches ?? 0})`)
+  const ledger = new Map(data.ledger.map(r => [r.crew_id, r]))
+  const range = data.schedule ? dateRangeLabel(data.schedule.start_date, data.schedule.end_date) : ''
+  const lines = [`${vesselName} — Vessel-wide fairness${range ? ' | ' + range : ''}`, 'Includes projected watches. All watch crew compared together.']
+  if (data.ledger.some(r => r.history_estimated)) lines.push('Historical availability is estimated.')
+  for (const group of fairnessGroups(data)) {
+    lines.push('', group.label)
+    for (const c of group.members) {
+      const r = ledger.get(c.id)!
+      const score = r.fairness_score == null ? '—' : Math.round(r.fairness_score) + '%'
+      lines.push(`- ${c.full_name}: ${score} (${r.balance ?? 'not rated'} fair share; watches ${r.total_watches}, wknd ${r.weekend_watches}, Fri ${r.friday_watches}; available days ${r.weekday_opportunities + r.weekend_opportunities})`)
     }
   }
-  return [header, ...lines].join('\n')
+  return lines.join('\n')
 }
