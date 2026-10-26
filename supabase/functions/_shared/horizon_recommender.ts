@@ -8,7 +8,9 @@ export interface HorizonCandidate {
   average_score: number
   score_spread: number
   gaps: number
-  relaxed_mondays: number
+  // Every forced relaxation, Monday-after-weekend and Friday-into-weekend alike
+  // (fairness.md §8): a horizon that forces fewer of them is the fairer rota.
+  relaxed_constraints: number
   coverage: number
   cycle_complete: boolean
 }
@@ -44,12 +46,12 @@ export function recommendHorizon(input: {
       weeks, min_score: minScore, average_score: average,
       score_spread: scores.length ? Math.max(...scores) - minScore : 0,
       gaps: plan.gaps.length,
-      relaxed_mondays: plan.events.filter(e => e.reason_code === 'constraint_relaxed_monday_exclusion').length,
+      relaxed_constraints: plan.events.filter(e => e.reason_code.startsWith('constraint_relaxed_')).length,
       coverage, cycle_complete: weeks >= largestPool,
     })
   }
 
-  const best = [...candidates].sort((a, b) => b.coverage - a.coverage || a.gaps - b.gaps || a.relaxed_mondays - b.relaxed_mondays || b.min_score - a.min_score || a.score_spread - b.score_spread || a.weeks - b.weeks)[0]
+  const best = [...candidates].sort((a, b) => b.coverage - a.coverage || a.gaps - b.gaps || a.relaxed_constraints - b.relaxed_constraints || b.min_score - a.min_score || a.score_spread - b.score_spread || a.weeks - b.weeks)[0]
   // Prefer a complete crew rotation when it is within three score points of the
   // best result. This avoids recommending 10 weeks for a 13-person annual cycle.
   const complete = candidates.filter(c => c.cycle_complete && c.coverage >= best.coverage - 0.01)

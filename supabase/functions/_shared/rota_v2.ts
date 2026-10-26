@@ -98,6 +98,9 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
   const events: { lane_id: string; crew_id: string | null; watch_date: string; reason_code: string; detail: unknown }[] = []
   const scheduled = (d: string) => d <= end && !(isoWeekday(d) >= 6 && !input.settings.include_weekends) && !(input.charters ?? []).some(c => c.start <= d && d <= c.end)
   const covered = new Set<string>()
+  // Who stood which date in THIS run — carries the Friday-to-weekend exclusion
+  // across the block loop; dates before the window come from the ledger instead.
+  const stood = new Set<string>()
   for (let date = input.startDate; date <= end; date = addDays(date, 1)) {
     if (!scheduled(date) || covered.has(date)) continue
     const wd = isoWeekday(date)
@@ -115,13 +118,23 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
     const tieIds = [...participants].sort(cmp)
     const rotatedIds = [...tieIds.slice(anchor % (tieIds.length || 1)), ...tieIds.slice(0, anchor % (tieIds.length || 1))]
     const tieRank = new Map(rotatedIds.map((id, i) => [id, i]))
-    type Candidate = { id: string; relaxed: number; cost: number; total: number; scarce: number; last: string; consecutive: number }
+    // fairness.md rule 1b: nobody stands a Fri -> Sun run. The Friday of this
+    // weekend is date-1 (Sat) or date-2 (Sun); fri_sat_sun_block is exempt,
+    // since there the Friday is the block's own lead day.
+    const weekendFriday = structure !== 'fri_sat_sun_block' && wd >= 6 ? addDays(date, wd === 6 ? -1 : -2) : null
+    const stoodWeekendFriday = (id: string) =>
+      !!weekendFriday && (stood.has(id + ':' + weekendFriday) || ledger[id]?.last_watch_date === weekendFriday)
+    type Candidate = { id: string; relaxed: number; relaxedKind: 'monday' | 'friday' | null; cost: number; total: number; scarce: number; last: string; consecutive: number }
     const compare = (a: Candidate, b: Candidate) => a.relaxed - b.relaxed || a.cost - b.cost || a.total - b.total || a.scarce - b.scarce || cmp(a.last, b.last) || a.consecutive - b.consecutive || tieRank.get(a.id)! - tieRank.get(b.id)!
     const candidates = blockPools.map(pool => {
       const ranked = pool.map(id => {
         const e = ledger[id]
+        // At most one exclusion is ever in force: a Monday is never a weekend day.
+        const mondayAfterWeekend = wd === 1 && (e.last_weekend_date === addDays(date, -1) || e.last_weekend_date === addDays(date, -2))
+        const fridayIntoWeekend = stoodWeekendFriday(id)
         return {
-          id, relaxed: wd === 1 && (e.last_weekend_date === addDays(date, -1) || e.last_weekend_date === addDays(date, -2)) ? 1 : 0,
+          id, relaxed: mondayAfterWeekend || fridayIntoWeekend ? 1 : 0,
+          relaxedKind: mondayAfterWeekend ? 'monday' as const : fridayIntoWeekend ? 'friday' as const : null,
           cost: days.reduce((sum, d) => sum + selectionCost(e, d, isoWeekday(d) >= 6 ? 'weekend' : 'weekday', isoWeekday(d) === 5), 0),
           total: e.total_watches, scarce: wd >= 6 ? e.weekend_watches : wd === 5 ? e.friday_watches : 0,
           last: e.last_watch_date ?? '', consecutive: e.consecutive_run,
@@ -165,9 +178,10 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
         if (c) {
           const a: PlannedAssignment = { lane_id: lane.id, crew_id: c.id, watch_date: d, day_type: isoWeekday(d) >= 6 ? 'weekend' : 'weekday', is_friday: isoWeekday(d) === 5 }
           assignments.push(a)
+          stood.add(c.id + ':' + d)
           updateLedger({ id: lane.id, kind: 'dept', department: null, pool: blockPools[i] }, c.id, d, a.day_type, a.is_friday, ledger)
         }
-        events.push({ lane_id: lane.id, crew_id: c?.id ?? null, watch_date: d, reason_code: !c ? 'no_eligible_crew' : c.relaxed ? 'constraint_relaxed_monday_exclusion' : 'global_fairness_match', detail: { scope: 'vessel', block_days: days, pool: blockPools[i], candidates: candidates[i].map(c => ({ crew_id: c.id, cost: c.cost, monday_relaxed: !!c.relaxed })), selected_cost: c?.cost ?? null, matched_lanes: result?.filled, relaxed: !!c?.relaxed } })
+        events.push({ lane_id: lane.id, crew_id: c?.id ?? null, watch_date: d, reason_code: !c ? 'no_eligible_crew' : c.relaxedKind ? `constraint_relaxed_${c.relaxedKind}_exclusion` : 'global_fairness_match', detail: { scope: 'vessel', block_days: days, pool: blockPools[i], candidates: candidates[i].map(c => ({ crew_id: c.id, cost: c.cost, monday_relaxed: c.relaxedKind === 'monday', friday_relaxed: c.relaxedKind === 'friday' })), selected_cost: c?.cost ?? null, matched_lanes: result?.filled, relaxed: !!c?.relaxed } })
       })
     }
   }

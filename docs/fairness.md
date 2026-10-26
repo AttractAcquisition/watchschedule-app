@@ -18,6 +18,7 @@ These are the operator-stated rules the math must honour:
 1. **Two independent rotations per lane.** Monday–Friday is one rotation; Saturday–Sunday is a separate rotation. Each is balanced on its own. A crew member's weekday load and weekend load are tracked and fairly distributed **separately**.
 2. **Friday carries higher weight.** Friday is the most-undesirable weekday watch — we must not let the same person repeatedly draw Friday. Friday is tracked as its own sub-count and weighted more heavily than other weekdays in the fairness score and in selection.
 3. **No Monday watch immediately after a weekend watch.** A crew member who stood watch on the immediately preceding Saturday or Sunday is **excluded** from the following Monday's watch. This couples the two rotations as a hard constraint (the weekend rotation constrains the next weekday rotation's Monday).
+3b. **No weekend watch immediately after that weekend's Friday (26 October 2026 amendment).** The mirror image of rule 3, closing the other end of the same run: a crew member who stood the **Friday** immediately preceding a weekend is **excluded** from that weekend's Saturday and Sunday. Standing Friday→Sunday is three consecutive days of the two most-undesirable watch kinds, which rule 2 (Friday weight) prices but never forbade. It applies under **every** `weekend_structure` **except `fri_sat_sun_block`**, where one person covering Fri+Sat+Sun is the mode's entire purpose — there the Friday and the weekend are one block, not a run. Under `per_day` it bars the Friday watchkeeper from **both** Sat and Sun; under `sat_sun_block` it bars them from the block. Like rule 3 it is relaxable (section 8), never a silent gap.
 4. **Balance is cumulative and persistent.** Fairness is measured over the vessel's whole history (seeded from uploaded past schedules), not just the current generation. Someone who has historically done more watches is owed fewer until the ledger evens out.
 5. **Fairness is per lane.** Each lane (Solo = one shared pool; Dual/Triple = one lane per selected department) has its **own** ledger and its **own** balance. A deckhand competes only with other deck-eligible crew in the Deck lane, never against the interior crew.
 6. **Consecutive exposure is discouraged.** Long unbroken runs of consecutive watch days are penalised so the rota doesn't grind one person down before rotating.
@@ -40,7 +41,7 @@ Per `backend.md`, `fairness_ledger` holds one row **per (lane, crew member)**. T
 
 > **Watch Groups (C4) and fairness.** A group is a lane spanning several departments whose crew are **pooled into one rotation**. This is a pure pool-MEMBERSHIP change: `selectCandidate`/`updateLedger`/`computeFairnessScore` are handed a pool + a per-(lane,crew) ledger and are indifferent to whether that pool came from one department or several — **the scoring is unchanged from C2** (`fairness_engine`/`fairness_constants` byte-identical). When a group is (re)formed, its lane's ledger starts empty, so the post-C2 rate judges the pooled crew on their watches-per-opportunity **since the lane formed** — "regroup resets to even" is automatic and **honest** (no fictional counts; the old count engine would have needed them, which is why groups landed after C2).
 | `friday_watches` | Watches specifically on Fridays (subset of weekday) in this lane. |
-| `last_watch_date` | Date of their most recent watch in this lane (any day). |
+| `last_watch_date` | Date of their most recent watch in this lane (any day). Also carries the **Friday-to-weekend exclusion** (rule 3b) across a generation boundary: a weekend whose Friday predates the window sees that Friday here. |
 | `last_weekend_date` | Date of their most recent **weekend** watch — drives the Monday-exclusion rule. |
 | `consecutive_run` | Length of their current unbroken run of consecutive watch days ending at `last_watch_date`. |
 | `fairness_score` | Cached 0–100 display score (section 5). Recomputed whenever counters change. |
@@ -97,6 +98,7 @@ Start from the lane's pool:
 
 Then remove anyone failing a **hard constraint** for this date:
 1. **Weekend-to-Monday exclusion.** If the date is a **Monday**, exclude any candidate whose `last_weekend_date` is the immediately preceding Saturday or Sunday (i.e. they stood the weekend that just ended). 
+1b. **Friday-to-weekend exclusion (principle 3b).** If the date is a **Saturday or Sunday**, exclude any candidate who stood **that weekend's Friday** — `date - 1` for a Saturday, `date - 2` for a Sunday. Skipped entirely when `weekend_structure = 'fri_sat_sun_block'` (the Friday is part of the same block). "Stood that Friday" is known from the assignments already made in this generation, and for a weekend whose Friday predates the generation window, from the incoming ledger's `last_watch_date`. Under `sat_sun_block` the test is applied **once for the block**, at the block's leading Saturday.
 2. **Same-day already assigned.** In multi-lane tiers a crew member belongs to exactly one department, so they can only be in their own lane — but guard anyway: a crew member already assigned on this date (any lane) cannot be assigned again the same date.
 3. **(Optional, settings-driven) rest rule.** If a minimum-rest setting is enabled, exclude candidates who stood watch within the configured look-back. (v1 default: only the explicit Monday-after-weekend rule above is enforced; a general rest rule is a later enhancement — leave a hook.)
 
@@ -149,7 +151,7 @@ Choose the candidate with the lowest `cost`. Resolve ties via the ordered tiebre
 ### Step D — Assign, update ledger, record reason
 - Write the `watch_assignment` (with `is_friday`, `day_type`).
 - **Immediately update** that member's `fairness_ledger` row: increment the relevant counters (`total_watches`, `weekday_watches`/`weekend_watches`, `friday_watches` if Friday), set `last_watch_date` (and `last_weekend_date` if weekend), update `consecutive_run` (increment if this date is contiguous with their last watch, else reset to 1), and recompute `fairness_score`.
-- Append a `fairness_event` with a `reason_code` and a `detail` JSON snapshot (the candidate costs considered, why this one won). Reason codes include: `lowest_cost`, `friday_spread`, `weekend_balance`, `monday_exclusion_applied`, `tie_break_<rule>`, `constraint_relaxed_<which>`.
+- Append a `fairness_event` with a `reason_code` and a `detail` JSON snapshot (the candidate costs considered, why this one won). Reason codes include: `lowest_cost`, `friday_spread`, `weekend_balance`, `monday_exclusion_applied`, `friday_exclusion_applied`, `tie_break_<rule>`, `constraint_relaxed_<which>` (`constraint_relaxed_monday_exclusion`, `constraint_relaxed_friday_exclusion`).
 
 This per-decision record is what lets `schedule-chat` answer "why is Alex on Friday" precisely: it reads the event and explains the cost comparison in plain language.
 
@@ -229,6 +231,7 @@ Sometimes hard constraints cannot all be satisfied (e.g. on a small crew, everyo
 
 1. Prefer to **shrink the eligible-but-excluded set** by the *least* important constraint first: relax the optional rest rule (if enabled) before the Monday-after-weekend rule.
 2. If still infeasible, relax the **Monday-after-weekend exclusion**, choosing among the previously-excluded the one with the **lowest weekend burden** (the least-bad choice), and flag it (`constraint_relaxed_monday_exclusion`). This visibly dents **Rotation Continuity**.
+2b. The **Friday-to-weekend exclusion** (rule 1b) relaxes on exactly the same terms as rule 2 and at the same rank — coverage always wins over the rest rule, and the least-bad previously-excluded candidate is chosen by the ordinary selection cost — flagged `constraint_relaxed_friday_exclusion`. The two never compete: a Monday is never a weekend day, so at most one of them is in force on any given date.
 3. If a lane has **no eligible crew at all** (everyone toggled ineligible), produce no assignment for that lane/date and surface a clear warning to the captain (the UI shows a gap with an explanation; the chatbot can explain it).
 
 Never silently violate a rule — always record it. The value of the product is trust; visible, explained exceptions preserve trust where silent ones would destroy it.

@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { planGlobal, validateLanes, canonicalHistory, replayGlobal, seedHistory, type RotaLane } from './rota_v2.ts'
-import { zeroEntry, addDays } from './fairness_engine.ts'
+import { zeroEntry, addDays, isoWeekday } from './fairness_engine.ts'
 import type { Crew, ScheduleSettings, PlannedAssignment } from './schedule_engine.ts'
 
 const crew = (id: string, department = 'deck', extra = {}): Crew => ({ id, department, eligible: true, available_from: '2020-01-01', ...extra })
@@ -102,4 +102,51 @@ Deno.test('no weekends, horizon bounds, no opportunities, and long deterministic
   const p=run([crew('a','deck',{available_from:'2027-01-01'})],[lane('1')],{settings:{...settings,horizon_weeks:13,include_weekends:false}})
   assert.equal(p.gaps.length,65);assert.equal(p.scores[0].fairness_score,null)
   assert.equal(p.end_date,addDays('2026-09-21',90))
+})
+
+// fairness.md rule 3b/1b — the mirror of the Monday rest rule.
+const standingByDate = (assignments: PlannedAssignment[]) => {
+  const on = new Map<string, string[]>()
+  for (const a of assignments) on.set(a.watch_date, [...(on.get(a.watch_date) ?? []), a.crew_id])
+  return on
+}
+Deno.test('nobody stands a Friday into that weekend, under per_day and sat_sun_block alike', () => {
+  const people = ['a','b','c','d','e'].map(id => crew(id))
+  for (const weekend_structure of ['per_day','sat_sun_block'] as const) {
+    const p = run(people, [lane('1')], { settings: { ...settings, weekend_structure, horizon_weeks: 13 } })
+    const on = standingByDate(p.assignments)
+    assert.equal(p.gaps.length, 0)
+    for (const [date, ids] of on) {
+      const wd = isoWeekday(date)
+      if (wd < 6) continue
+      const friday = addDays(date, wd === 6 ? -1 : -2)
+      for (const id of ids) assert.ok(!(on.get(friday) ?? []).includes(id), `${id} stood ${friday} and ${date} under ${weekend_structure}`)
+    }
+  }
+})
+Deno.test('fri_sat_sun_block is exempt — its Friday IS the block lead', () => {
+  const p = run(['a','b','c','d','e'].map(id => crew(id)), [lane('1')], { settings: { ...settings, weekend_structure: 'fri_sat_sun_block' } })
+  const on = standingByDate(p.assignments)
+  const blocks = [...on].filter(([d]) => isoWeekday(d) === 5)
+  assert.ok(blocks.length > 0)
+  for (const [friday, ids] of blocks) {
+    for (const d of [addDays(friday, 1), addDays(friday, 2)]) assert.deepEqual(on.get(d), ids)
+  }
+})
+Deno.test('a crew too small to rest relaxes the Friday rule rather than leaving the weekend uncovered', () => {
+  for (const weekend_structure of ['per_day','sat_sun_block'] as const) {
+    const p = run([crew('solo')], [lane('1')], { settings: { ...settings, weekend_structure } })
+    assert.equal(p.gaps.length, 0)
+    assert.equal(p.assignments.find(a => a.watch_date === '2026-09-26')?.crew_id, 'solo')
+    assert.equal(p.events.find(e => e.watch_date === '2026-09-26')?.reason_code, 'constraint_relaxed_friday_exclusion')
+    // The Monday rule still owns Mondays; the two never collide.
+    assert.equal(p.events.find(e => e.watch_date === '2026-09-28')?.reason_code, 'constraint_relaxed_monday_exclusion')
+  }
+})
+Deno.test('the Friday exclusion reaches across a generation boundary via the ledger', () => {
+  // Generation starts on a Saturday; the Friday before it lives in history only.
+  const base = { a: { ...zeroEntry('a'), last_watch_date: '2026-09-25', total_watches: 1, weekday_watches: 1, friday_watches: 1 }, b: zeroEntry('b') }
+  const p = run([crew('a'), crew('b')], [lane('1')], { startDate: '2026-09-26', base, settings: { ...settings, weekend_structure: 'sat_sun_block' } })
+  assert.equal(p.assignments.find(a => a.watch_date === '2026-09-26')?.crew_id, 'b')
+  assert.equal(p.assignments.find(a => a.watch_date === '2026-09-27')?.crew_id, 'b')
 })

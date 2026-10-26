@@ -8,7 +8,7 @@ This is the persistent operating contract for building WatchSchedule. Follow it 
 
 ## 1. What WatchSchedule is
 
-WatchSchedule is a vertical SaaS that generates **fair, automated watch-rotation schedules for superyachts**. A captain signs up (Supabase Auth), pays (Stripe), and is gated by RLS into onboarding: build the crew list (OCR or manual), configure tier-specific watch settings, and generate. The product has exactly two authenticated pages — a **dashboard** (per-crew fairness scores + a week/month watch calendar + regenerate + a Claude chatbot) and a **settings** page (crew CRUD + watch settings + billing). The differentiator is a **persistent, per-lane fairness engine** that balances Mon–Fri and Sat–Sun as separate rotations, weights Fridays more heavily, forbids a Monday watch right after a weekend watch, and explains every decision. (master.md §1)
+WatchSchedule is a vertical SaaS that generates **fair, automated watch-rotation schedules for superyachts**. A captain signs up (Supabase Auth), pays (Stripe), and is gated by RLS into onboarding: build the crew list (OCR or manual), configure tier-specific watch settings, and generate. The product has exactly two authenticated pages — a **dashboard** (per-crew fairness scores + a week/month watch calendar + regenerate + a Claude chatbot) and a **settings** page (crew CRUD + watch settings + billing). The differentiator is a **persistent, per-lane fairness engine** that balances Mon–Fri and Sat–Sun as separate rotations, weights Fridays more heavily, forbids a Monday watch right after a weekend watch **and a weekend watch right after that weekend's Friday** (26 Oct 2026 amendment — every `weekend_structure` except `fri_sat_sun_block`), and explains every decision. (master.md §1)
 
 ---
 
