@@ -41,9 +41,12 @@ Deno.serve(async req => {
     const laneId = body.lane_id ?? ''
     if (!validISODate(watchDate) || !UUID.test(laneId)) throw new Error('Pick a day and a watch lane to change.')
 
-    const { data: schedule, error: se } = await admin.from('schedules')
-      .select('id,start_date,end_date,rota_snapshot').eq('vessel_id', vesselId).eq('is_current', true).maybeSingle()
+    const [{ data: schedule, error: se }, { data: settings, error: we }] = await Promise.all([
+      admin.from('schedules').select('id,start_date,end_date,rota_snapshot').eq('vessel_id', vesselId).eq('is_current', true).maybeSingle(),
+      admin.from('watch_settings').select('weekend_structure').eq('vessel_id', vesselId).maybeSingle(),
+    ])
     if (se) throw se
+    if (we) throw we
     if (!schedule) throw new Error('Generate a schedule before changing it.')
 
     const inputs = await loadRotaInputs(admin, vesselId)
@@ -61,8 +64,11 @@ Deno.serve(async req => {
     const scheduled = (d: string) => dated.has(d) && !paused(d)
 
     // The whole block moves together: a weekend block has one watchkeeper by
-    // construction, so reassigning half of it is not a rota the engine can produce.
-    const structure: WeekendStructure = snapshot.weekend_structure ?? 'per_day'
+    // construction, so reassigning half of it is not a rota the engine can
+    // produce. Use the structure the schedule was BUILT with; schedules from
+    // before the snapshot carried it fall back to the vessel's current setting,
+    // a far better guess than per_day, which would split a block.
+    const structure: WeekendStructure = snapshot.weekend_structure ?? settings?.weekend_structure ?? 'per_day'
     const days = blockFor(watchDate, schedule.start_date, schedule.end_date, structure, scheduled)
     if (!days.length) throw new Error('That day is not part of the current schedule.')
 
