@@ -736,6 +736,7 @@ export type Database = {
           day_type: Database["public"]["Enums"]["day_type"]
           id: string
           is_friday: boolean
+          is_manual: boolean
           lane_id: string
           schedule_id: string
           vessel_id: string
@@ -747,6 +748,7 @@ export type Database = {
           day_type: Database["public"]["Enums"]["day_type"]
           id?: string
           is_friday?: boolean
+          is_manual?: boolean
           lane_id: string
           schedule_id: string
           vessel_id: string
@@ -758,6 +760,7 @@ export type Database = {
           day_type?: Database["public"]["Enums"]["day_type"]
           id?: string
           is_friday?: boolean
+          is_manual?: boolean
           lane_id?: string
           schedule_id?: string
           vessel_id?: string
@@ -899,6 +902,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      apply_manual_override: {
+        Args: { p_plan: Json; p_revision: number; p_vessel: string }
+        Returns: undefined
+      }
       current_vessel_id: { Args: never; Returns: string }
       publish_rota: {
         Args: { p_plan: Json; p_revision: number; p_vessel: string }

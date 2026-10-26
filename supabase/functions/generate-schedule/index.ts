@@ -22,7 +22,7 @@ Deno.serve(async req => {
     const plan = planGlobal({ startDate: start, endDate, settings, crew: inputs.crew, lanes: inputs.lanes, base: base.ledger, leave: inputs.leave, charters: inputs.charters })
     const { data: scheduleId, error: publishError } = await admin.rpc('publish_rota', {
       p_vessel: vesselId, p_revision: revision,
-      p_plan: { ...plan, ledger: undefined, legacy_snapshots: base.legacySnapshots, snapshot: { lanes: inputs.lanes, opportunities: plan.opportunities, scheduled_dates: [...new Set(plan.events.map(e => e.watch_date))], history_estimated: base.estimated }, history_estimated: base.estimated },
+      p_plan: { ...plan, ledger: undefined, legacy_snapshots: base.legacySnapshots, snapshot: { lanes: inputs.lanes, opportunities: plan.opportunities, scheduled_dates: [...new Set(plan.events.map(e => e.watch_date))], weekend_structure: settings.weekend_structure ?? 'per_day', history_estimated: base.estimated }, history_estimated: base.estimated },
     })
     if (publishError) throw publishError
     return json(req, { schedule_id: scheduleId, start_date: plan.start_date, end_date: plan.end_date, assignments_count: plan.assignments.length, gaps: plan.gaps.length, fairness: plan.scores, engine_version: 2 })

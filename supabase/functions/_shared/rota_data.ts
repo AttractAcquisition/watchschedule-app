@@ -42,7 +42,16 @@ export async function loadRotaInputs(admin: Admin, vesselId: string) {
   return { crew, lanes, laneRows, leave, charters }
 }
 
-export async function loadGlobalBase(admin: Admin, vesselId: string, before: string, inputs: Awaited<ReturnType<typeof loadRotaInputs>>) {
+// A pending amendment to the stored rota, replayed as if it were already saved.
+// The manual-override function uses this to score a change BEFORE persisting it,
+// so the ledger it writes is the ordinary replay of the amended assignments —
+// never a second, parallel fairness calculation.
+export interface RotaPatch {
+  assignments?: (rows: HistoricalAssignment[]) => HistoricalAssignment[]
+  opportunities?: HistoricalOpportunity[]
+}
+
+export async function loadGlobalBase(admin: Admin, vesselId: string, before: string, inputs: Awaited<ReturnType<typeof loadRotaInputs>>, patch?: RotaPatch) {
   const [scheduleRows, assignmentRows, seedResult, vesselResult] = await Promise.all([
     readAll(admin, 'schedules', vesselId), readAll(admin, 'watch_assignments', vesselId),
     admin.from('rota_seed').select('*').eq('vessel_id', vesselId).maybeSingle(),
@@ -54,8 +63,8 @@ export async function loadGlobalBase(admin: Admin, vesselId: string, before: str
   const resetAt = vesselResult.data.fairness_reset_at as string | null
   const versions = (scheduleRows as (ScheduleVersion & { rota_snapshot: { lanes?: RotaLane[]; opportunities?: Opportunity[]; history_estimated?: boolean } | null })[])
     .filter(s => !resetAt || s.generated_at > resetAt)
-  const assignments = assignmentRows as HistoricalAssignment[]
-  const opportunities: HistoricalOpportunity[] = []
+  const assignments = patch?.assignments ? patch.assignments(assignmentRows as HistoricalAssignment[]) : assignmentRows as HistoricalAssignment[]
+  const opportunities: HistoricalOpportunity[] = [...(patch?.opportunities ?? [])]
   const legacySnapshots: { id: string; snapshot: unknown }[] = []
   let estimated = !!seed?.history_estimated
   const available = makeAvailability(inputs.crew, inputs.leave)

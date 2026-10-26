@@ -12,6 +12,7 @@ import { useAuth } from '../../auth/AuthGate'
 import { useDashboardData } from './useDashboardData'
 import { FairnessPanel } from './FairnessPanel'
 import { WatchCalendar } from './WatchCalendar'
+import { AssignmentEditor, type EditorTarget } from './AssignmentEditor'
 import { RegenerateButton } from './RegenerateButton'
 import { CopyWhatsAppButton } from './CopyWhatsAppButton'
 import { ScheduleHistoryButton } from './ScheduleHistory'
@@ -41,6 +42,8 @@ export default function Dashboard() {
   const [printTarget, setPrintTarget] = useState<PrintTarget>(null)
   const [moreOpen, setMoreOpen] = useState(false)
   const [fairnessOpen, setFairnessOpen] = useState(false)
+  // The cell the captain is reassigning by hand (docs/manual-override.md).
+  const [editing, setEditing] = useState<EditorTarget | null>(null)
   const [coverageDismissedLocally, setCoverageDismissedLocally] = useState(false)
   const clearPrint = useCallback(() => setPrintTarget(null), [])
   usePrintWhenSet(printTarget, clearPrint)
@@ -132,7 +135,10 @@ export default function Dashboard() {
         coverageWarningDismissedAt={coverageDismissedLocally ? new Date().toISOString() : vessel?.schedule_coverage_warning_dismissed_at ?? null}
         onDismissCoverageWarning={() => { setCoverageDismissedLocally(true); dismissCoverageWarning.mutate() }}
         dismissingCoverageWarning={dismissCoverageWarning.isPending}
+        onEdit={setEditing}
       />
+
+      {editing && <AssignmentEditor data={data} target={editing} vesselId={vesselId} onClose={() => setEditing(null)} />}
 
       <section className="flex flex-wrap items-center justify-between gap-ws-4 rounded-ws-md border border-ws-line bg-ws-steel p-ws-5 shadow-ws-md">
         <div>

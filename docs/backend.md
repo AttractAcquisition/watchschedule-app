@@ -234,6 +234,7 @@ create table watch_assignments (
   watch_date    date not null,
   day_type      day_type not null,               -- weekday | weekend
   is_friday     boolean not null default false,  -- Friday carries higher fairness weight
+  is_manual     boolean not null default false,  -- 26 Oct 2026: set by hand via override-assignment; generation writes false
   created_at    timestamptz not null default now()
 );
 create index on watch_assignments(schedule_id);
@@ -622,6 +623,15 @@ Moves the caller's subscription UP to a higher tier's price. The client sends **
   4. `stripe.subscriptions.update(subId, { items:[{ id, price: <newPrice> }], proration_behavior:'create_prorations', metadata:{ user_id, tier:target } })` — pay the difference immediately. `metadata.tier` is **reference only**; the webhook derives `product_tier` from the new **price**.
 - **Response:** `{ "ok": true, "target", "interval", "subscription_status" }`.
 - **Gate:** does **NOT** write `product_tier`. Stripe fires `customer.subscription.updated` → `stripe-webhook` (§6.2) flips `product_tier` from the price. The client watches the profile via Realtime until the tier flips, then prompts for any newly-required settings (the shared `WatchSettingsForm`), which rebuilds lanes and retires the old lane (`active=false`, never deleted; fairness history preserved). `onboarding_complete` and the gate are untouched — the old lane/schedule keeps working until the captain reconciles. **Scope: upgrades only;** downgrades are deferred (cancellation handled by the portal).
+
+### 6.9 `override-assignment` (26 Oct 2026 — manual override)
+Changes **who stands one lane's watch on one day** (a weekend block moves whole), then recomputes fairness from the amended rota. Full contract: [manual-override.md](./manual-override.md).
+- **Auth:** user JWT; re-derive `vessel_id` from the JWT; active subscription required.
+- **Request (list):** `{ watch_date, lane_id }` -> `{ days, current_crew_id, options: [{ crew_id, full_name, in_lane, violations, blockers }] }`. The browser holds **no** rota rules — it renders what this returns.
+- **Request (apply):** `{ watch_date, lane_id, crew_id | null, acknowledge: [code, …] }` -> `{ applied, fairness }`. If a listed violation is not acknowledged by code: `{ requires_consent, violations }`. If refused outright (`already_on_watch`): `{ blocked, blockers }`. All **200** — consent and refusal are answers, not transport failures.
+- **Behaviour:** derive the block from that schedule's own `rota_snapshot.weekend_structure`; evaluate the rules against the live rota (every schedule version, same per-date winner rule as the replay); replay the amended rota via `loadGlobalBase` + `globalScores` — the same functions generation uses, never a second formula; persist through the service-only RPC `apply_manual_override` under the `rota_revision` check.
+- **Writes:** `watch_assignments` (the block's rows, `is_manual = true`), `schedules.rota_snapshot.opportunities` (the new watchkeeper's days), `fairness_events` (`manual_override`), `vessel_fairness` (rewritten), `vessels.rota_revision` (bumped). Client-side writes to any of these remain revoked.
+- **Scope:** one lane-day per call. No re-planning, no locking, no approval lifecycle. A regeneration overwrites manual changes inside its window, by design.
 
 ---
 

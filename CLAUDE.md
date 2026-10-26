@@ -2,6 +2,8 @@
 
 > Approved 22 September 2026: [docs/rota-v2.md](docs/rota-v2.md) supersedes the legacy per-lane fairness seam, disjoint department rule, and department-count tier limits below. V2 uses overlapping department pools, 1–3 subscription-limited lanes, and one vessel-wide ledger per crew member. All other safety and tenant-isolation rules remain in force.
 
+> Approved 26 October 2026: [docs/manual-override.md](docs/manual-override.md) adds the captain's manual per-day override, reversing the "no manual schedule editing" exclusion in `docs/additions-v2.md` and `docs/additions.md`. One lane-day (or weekend block) may be reassigned by hand; the rest of the schedule is untouched, fairness is recomputed by the ordinary replay, and every engine rule broken needs its own acknowledgement. Server-only writes, RLS and determinism are unchanged.
+
 This is the persistent operating contract for building WatchSchedule. Follow it in **every** session. It is derived **from `/docs`** — the six specification documents are the source of truth. This file summarises them; it never overrides them. When this file and a doc disagree, the doc wins and this file should be corrected.
 
 ---
@@ -72,8 +74,9 @@ The six docs own distinct domains. On conflict, precedence for **behaviour** is:
 
 These are load-bearing seams. The **names are exact** and identical across docs and the repo. If you change a seam, update **every** document in its row and regenerate `app/src/types/db.ts` if the schema changed.
 
-### The 8 Edge Functions (canonical directory names)
-`create-checkout-session`, `stripe-webhook`, `create-billing-portal-session`, `parse-crew-list`, `seed-fairness`, `generate-schedule`, `schedule-chat`, `upgrade-subscription`.
+### The 9 Edge Functions (canonical directory names)
+`create-checkout-session`, `stripe-webhook`, `create-billing-portal-session`, `parse-crew-list`, `seed-fairness`, `generate-schedule`, `schedule-chat`, `upgrade-subscription`, `override-assignment`.
+- `override-assignment` (26 Oct 2026) changes who stands ONE lane-day by hand and recomputes fairness through the same replay generation uses; it writes via the service-only RPC `apply_manual_override`, never from the client. See docs/manual-override.md.
 - `upgrade-subscription` (B4) modifies the Stripe subscription to a higher tier's price; it **never** writes `product_tier` — the webhook does, derived from the new price. (Original 7 + this.)
 - `stripe-webhook` is the canonical name (not bare "webhook") and the **only** writer of `payment_status` / `product_tier`.
 - `seed-fairness` is the canonical directory; **`parse-past-schedule` is an alias for the same function** — do **not** create two.

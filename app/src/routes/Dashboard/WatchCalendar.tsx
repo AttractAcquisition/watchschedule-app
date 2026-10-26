@@ -12,6 +12,7 @@ import {
   format, isFriday, isToday, isWeekend, parseISO, startOfMonth, startOfWeek,
 } from 'date-fns'
 import { shortName } from './fairness'
+import type { EditorTarget } from './AssignmentEditor'
 import type { DashboardData } from './useDashboardData'
 
 const fmt = (d: Date) => format(d, 'yyyy-MM-dd')
@@ -22,7 +23,8 @@ function charterFor(data: DashboardData, dateStr: string) {
   return data.charters.find((c) => dateStr >= c.start_date && dateStr <= c.end_date) ?? null
 }
 
-function Cell({ data, laneId, date, scheduled, compact, dense }: { data: DashboardData; laneId: string; date: Date; scheduled: Set<string>; compact?: boolean; dense?: boolean }) {
+function Cell({ data, lane, date, scheduled, compact, dense, onEdit }: { data: DashboardData; lane: DashboardData['lanes'][number]; date: Date; scheduled: Set<string>; compact?: boolean; dense?: boolean; onEdit?: (target: EditorTarget) => void }) {
+  const laneId = lane.id
   const ds = fmt(date)
   const charter = charterFor(data, ds)
   const key = `${laneId}:${ds}`
@@ -31,18 +33,29 @@ function Cell({ data, laneId, date, scheduled, compact, dense }: { data: Dashboa
   const isGap = !charter && !a && scheduled.has(ds) // scheduled date, no assignment -> no_eligible_crew gap
   const friday = isFriday(date)
   const weekend = isWeekend(date)
+  // Only the current schedule's own days can be changed by hand: days before a
+  // planned-ahead start are served by the superseded rota, and a paused or
+  // unscheduled day has no watch to reassign.
+  const editable = !!onEdit && !charter && scheduled.has(ds)
+    && !!data.schedule && ds >= data.schedule.start_date && ds <= data.schedule.end_date
 
   const base = [
     dense ? 'min-h-5 px-1 py-px text-center' : compact ? 'min-h-[1.5rem] px-ws-1 py-ws-1 text-center' : 'min-h-[2.75rem] px-ws-2 py-ws-2',
-    'border border-ws-line-faint',
+    'block w-full border border-ws-line-faint',
     charter ? 'bg-ws-steel-inset' : weekend ? 'bg-ws-navy' : a ? 'bg-ws-steel-2' : 'bg-ws-steel-inset',
     friday && !charter ? 'border-l-2 border-l-ws-gold-dim' : '',
     isToday(date) ? 'border-t-2 border-t-ws-gold' : '',
+    a?.is_manual ? 'ring-1 ring-inset ring-ws-gold-dim' : '',
+    editable ? 'cursor-pointer transition-colors hover:bg-ws-steel-3' : '',
   ].join(' ')
 
   const resumes = charter ? format(addDays(parseISO(charter.end_date), 1), 'd MMM') : ''
-  return (
-    <div className={base} title={charter ? `${charter.label ? charter.label + ' — ' : ''}Charter · resumes ${resumes}` : crew ? `${crew.full_name} · ${crew.position}` : isGap ? 'No eligible crew — gap' : ''}>
+  const manual = a?.is_manual ? ' · changed by hand' : ''
+  const title = charter ? `${charter.label ? charter.label + ' — ' : ''}Charter · resumes ${resumes}`
+    : crew ? `${crew.full_name} · ${crew.position}${manual}${editable ? ' — click to change' : ''}`
+    : isGap ? `No eligible crew — gap${editable ? ' — click to fill' : ''}` : ''
+  const content = (
+    <>
       {charter ? (
         <span className={`block truncate font-mono italic text-ws-text-muted ${dense ? 'text-[10px] leading-4' : 'text-ws-xs'}`} aria-label={`paused, charter resumes ${resumes}`}>{compact ? '⏸' : 'Paused'}</span>
       ) : crew ? (
@@ -53,17 +66,31 @@ function Cell({ data, laneId, date, scheduled, compact, dense }: { data: Dashboa
       ) : (
         <span className="text-ws-text-faint">·</span>
       )}
-    </div>
+    </>
+  )
+
+  if (!editable) return <div className={base} title={title}>{content}</div>
+  return (
+    <button
+      type="button"
+      className={base}
+      title={title}
+      aria-label={`${lane.label}, ${format(date, 'EEE d MMM')}: ${crew ? crew.full_name : 'unassigned'} — change`}
+      onClick={() => onEdit!({ laneId, laneLabel: lane.label, date: ds })}
+    >
+      {content}
+    </button>
   )
 }
 
 export function WatchCalendar({
-  data, coverageWarningDismissedAt, onDismissCoverageWarning, dismissingCoverageWarning,
+  data, coverageWarningDismissedAt, onDismissCoverageWarning, dismissingCoverageWarning, onEdit,
 }: {
   data: DashboardData
   coverageWarningDismissedAt?: string | null
   onDismissCoverageWarning?: () => void
   dismissingCoverageWarning?: boolean
+  onEdit?: (target: EditorTarget) => void
 }) {
   const [offset, setOffset] = useState(0)
 
@@ -154,7 +181,7 @@ export function WatchCalendar({
                   <div key={fmt(d)} className={`rounded-ws-sm ${inMonth ? '' : 'opacity-40'}`}>
                     <div className="px-ws-1 pt-ws-1 text-right font-mono text-ws-xs text-ws-text-faint">{format(d, 'd')}</div>
                     <div className="space-y-px p-ws-1">
-                      {lanes.map((lane) => <Cell key={lane.id} data={data} laneId={lane.id} date={d} scheduled={scheduled} compact dense={denseMonth} />)}
+                      {lanes.map((lane) => <Cell key={lane.id} data={data} lane={lane} date={d} scheduled={scheduled} compact dense={denseMonth} onEdit={onEdit} />)}
                     </div>
                   </div>
                 )
@@ -163,7 +190,7 @@ export function WatchCalendar({
           )
         })}
       </div>
-      <Legend compact={denseMonth} />
+      <Legend compact={denseMonth} editable={!!onEdit} />
     </section>
   )
 }
@@ -177,7 +204,7 @@ function CoverageNotice({ text, onDismiss, dismissing }: { text: string; onDismi
   )
 }
 
-function Legend({ compact = false }: { compact?: boolean }) {
+function Legend({ compact = false, editable = false }: { compact?: boolean; editable?: boolean }) {
   return (
     <div className={`flex flex-wrap items-center text-ws-xs text-ws-text-muted ${compact ? 'mt-ws-3 gap-x-ws-3 gap-y-ws-1' : 'mt-ws-4 gap-ws-4'}`}>
       <span className="flex items-center gap-ws-2"><span className="inline-block h-3 w-3 rounded-ws-sm border-l-2 border-l-ws-gold-dim bg-ws-steel-2" /> Friday (weighted)</span>
@@ -185,6 +212,7 @@ function Legend({ compact = false }: { compact?: boolean }) {
       <span className="flex items-center gap-ws-2"><span className="font-mono text-ws-alert">⚠</span> Gap — no eligible crew</span>
       <span className="flex items-center gap-ws-2"><span className="font-mono italic text-ws-text-muted">Paused</span> Charter (rotation resumes after)</span>
       <span className="flex items-center gap-ws-2"><span className="font-mono text-ws-seagreen">🌙</span> On leave (per-crew; standing preserved)</span>
+      {editable && <span className="flex items-center gap-ws-2"><span className="inline-block h-3 w-3 rounded-ws-sm bg-ws-steel-2 ring-1 ring-inset ring-ws-gold-dim" /> Changed by hand — click any day to reassign</span>}
     </div>
   )
 }

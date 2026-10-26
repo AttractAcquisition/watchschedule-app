@@ -7,7 +7,7 @@ import type { Database } from '../../types/db'
 
 export type Crew = Pick<Database['public']['Tables']['crew_members']['Row'], 'id' | 'full_name' | 'position' | 'department' | 'eligible' | 'updated_at'>
 export type Lane = Pick<Database['public']['Tables']['watch_lanes']['Row'], 'id' | 'kind' | 'department' | 'label' | 'active'> & { departments?: string[] }
-export type Assignment = Pick<Database['public']['Tables']['watch_assignments']['Row'], 'lane_id' | 'crew_id' | 'watch_date' | 'day_type' | 'is_friday'>
+export type Assignment = Pick<Database['public']['Tables']['watch_assignments']['Row'], 'lane_id' | 'crew_id' | 'watch_date' | 'day_type' | 'is_friday' | 'is_manual'>
 export type LedgerRow = Pick<
   Database['public']['Tables']['vessel_fairness']['Row'],
   'crew_id' | 'total_watches' | 'weekday_watches' | 'weekend_watches' | 'friday_watches' | 'last_watch_date' | 'consecutive_run' | 'fairness_score' | 'balance' | 'weekday_opportunities' | 'weekend_opportunities' | 'history_estimated'
@@ -55,7 +55,7 @@ export function useDashboardData(vesselId: string | undefined) {
       const [{ data: sched }, { data: crew }, { data: lanes }, { data: charters }, { data: leave }, { data: settings }] = inputs
       const outputs = await Promise.all([
         sched
-          ? supabase.from('watch_assignments').select('lane_id,crew_id,watch_date,day_type,is_friday').eq('schedule_id', sched.id).order('watch_date')
+          ? supabase.from('watch_assignments').select('lane_id,crew_id,watch_date,day_type,is_friday,is_manual').eq('schedule_id', sched.id).order('watch_date')
           : Promise.resolve({ data: [] as Assignment[], error: null }),
         supabase.from('vessel_fairness').select('crew_id,total_watches,weekday_watches,weekend_watches,friday_watches,last_watch_date,consecutive_run,fairness_score,balance,weekday_opportunities,weekend_opportunities,history_estimated').eq('vessel_id', vesselId!),
       ])
@@ -78,7 +78,7 @@ export function useDashboardData(vesselId: string | undefined) {
           .order('generated_at', { ascending: false }).limit(1).maybeSingle()
         if (prior.error) throw prior.error
         if (prior.data) {
-          const before = await supabase.from('watch_assignments').select('lane_id,crew_id,watch_date,day_type,is_friday')
+          const before = await supabase.from('watch_assignments').select('lane_id,crew_id,watch_date,day_type,is_friday,is_manual')
             .eq('schedule_id', prior.data.id).lt('watch_date', plannedStart).order('watch_date')
           if (before.error) throw before.error
           const laneIds = new Set(laneList.map((l) => l.id))
