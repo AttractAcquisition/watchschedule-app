@@ -8,6 +8,7 @@ import { supabase } from '../../lib/supabase'
 import { queryClient } from '../../lib/queryClient'
 import { useAuth } from '../../auth/AuthGate'
 import { InfoTooltip } from '../../components/ui/InfoTooltip'
+import { FixedWatches } from './FixedWatches'
 import { DEPARTMENTS, type Department } from '../../lib/classifyDepartment'
 import { DEPT_LABEL, effectiveWindow, GENERATION_MODES, GENERATION_MODE_LABEL, laneMaxForTier, makeWatchSettingsSchema, monthBounds, monthOf, todayISO, WEEKEND_STRUCTURES, WEEKEND_STRUCTURE_LABEL, windowDays, type Tier, type WatchSettingsValues as FormValues } from './watchSettings'
 
@@ -286,6 +287,9 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
             </div>
           </div>
         )}
+        {/* docs/fixed-watches.md — needs saved lanes to pin against, so it stays
+            hidden until the configuration has been saved at least once. */}
+        {!!configuration?.lanes.length && <FixedWatches />}
       </div>}
 
       {saveError && <p role="alert" className="text-ws-sm text-ws-alert">{saveError}</p>}

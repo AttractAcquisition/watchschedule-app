@@ -3,24 +3,48 @@
 // today forward?"). Calm generating state (branding.md §8). On success the
 // dashboard query is invalidated so the view refreshes to the NEW current
 // schedule (recomputed from the up-to-date ledger — fairness-aware, never random).
+//
+// The confirm step also PRESENTS the captain's fixed watches before anything is
+// built (docs/fixed-watches.md): which dates are already spoken for, and whether
+// any of them is still waiting on consent — in which case generation would
+// refuse, so the button says where to go and stays disabled.
 import { useState } from 'react'
-import { Loader2, RefreshCw } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { AlertTriangle, Loader2, Pin, RefreshCw } from 'lucide-react'
+import { format, parseISO } from 'date-fns'
 import { supabase } from '../../lib/supabase'
 import { queryClient } from '../../lib/queryClient'
+import { previewPins, pinNeedsAnswer } from '../Settings/fixedWatches'
 import { dashboardKey } from './useDashboardData'
+
+const shortFmt = (d: string) => format(parseISO(d), 'EEE d MMM')
 
 export function RegenerateButton({ vesselId, hasSchedule }: { vesselId: string | undefined; hasSchedule: boolean }) {
   const [confirming, setConfirming] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Only asked for while the dialog is open, and never written to.
+  const { data: preview, isLoading: checkingPins } = useQuery({
+    queryKey: ['watch_pins_preview', vesselId],
+    enabled: confirming,
+    queryFn: () => previewPins(true),
+    retry: false,
+  })
+  const applying = (preview?.pins ?? []).filter((p) => p.applies)
+  const unresolved = applying.filter(pinNeedsAnswer)
+
   async function run() {
     setError(null)
     setGenerating(true)
     setConfirming(false)
     try {
-      const { error } = await supabase.functions.invoke('generate-schedule', { body: { regenerate: true } })
+      const { data, error } = await supabase.functions.invoke<{ requires_pin_consent?: boolean }>('generate-schedule', { body: { regenerate: true } })
       if (error) throw error
+      if (data?.requires_pin_consent) {
+        setError('A fixed watch still needs your consent — see Settings → Watch configuration → Advanced.')
+        return
+      }
       await queryClient.invalidateQueries({ queryKey: dashboardKey(vesselId) })
     } catch {
       setError("Couldn't regenerate just now. Please try again.")
@@ -41,23 +65,58 @@ export function RegenerateButton({ vesselId, hasSchedule }: { vesselId: string |
           {generating ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <RefreshCw className="h-4 w-4" strokeWidth={1.5} aria-hidden />}
           {generating ? 'Regenerating…' : 'Regenerate'}
         </button>
-        {error && <p role="alert" className="text-ws-xs text-ws-alert">{error}</p>}
+        {error && <p role="alert" className="max-w-xs text-right text-ws-xs text-ws-alert">{error}</p>}
       </div>
 
       {confirming && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-ws-navy-deep/70 p-ws-5" role="dialog" aria-modal="true">
-          <div className="w-full max-w-sm rounded-ws-lg border border-ws-line bg-ws-steel-2 p-ws-6 shadow-ws-lg">
+          <div className="flex max-h-[85vh] w-full max-w-sm flex-col rounded-ws-lg border border-ws-line bg-ws-steel-2 p-ws-6 shadow-ws-lg">
             <p className="ws-eyebrow">— Regenerate schedule</p>
             <h3 className="mt-ws-1 font-display text-ws-md font-semibold text-ws-offwhite">Regenerate from today forward?</h3>
             <p className="mt-ws-3 text-ws-sm text-ws-text-muted">
               This builds a new current schedule from today, balancing from the up-to-date fairness ledger.
               The previous schedule is kept for history.
             </p>
+
+            <div className="mt-ws-4 min-h-0 flex-1 overflow-y-auto">
+              {checkingPins ? (
+                <p className="flex items-center gap-ws-2 text-ws-xs text-ws-text-muted"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Checking fixed watches…</p>
+              ) : applying.length > 0 && (
+                <div className="rounded-ws-sm border border-ws-line bg-ws-steel-3 p-ws-3">
+                  <p className="flex items-center gap-ws-2 text-ws-xs font-medium text-ws-text-muted">
+                    <Pin className="h-3.5 w-3.5 text-ws-gold" strokeWidth={1.5} aria-hidden />
+                    These watches are already fixed and will be kept
+                  </p>
+                  <ul className="mt-ws-2 space-y-ws-1">
+                    {applying.map((p) => (
+                      <li key={p.id} className="flex flex-wrap items-baseline justify-between gap-ws-2 text-ws-xs">
+                        <span className="text-ws-text">{p.crew_name}</span>
+                        <span className="font-mono text-ws-text-muted">
+                          {p.days.length > 1 ? `${shortFmt(p.days[0])} – ${shortFmt(p.days[p.days.length - 1])}` : shortFmt(p.watch_date)} · {p.lane_label}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-ws-2 text-ws-xs text-ws-text-faint">Everything else is balanced around them.</p>
+                </div>
+              )}
+              {unresolved.length > 0 && (
+                <p role="alert" className="mt-ws-3 flex items-start gap-ws-2 text-ws-xs text-ws-warn">
+                  <AlertTriangle className="mt-ws-1 h-3.5 w-3.5 shrink-0" strokeWidth={1.5} aria-hidden />
+                  <span>
+                    {unresolved.length === 1 ? 'One fixed watch needs' : `${unresolved.length} fixed watches need`} your
+                    consent before anything can be generated — Settings → Watch configuration → Advanced.
+                  </span>
+                </p>
+              )}
+            </div>
+
             <div className="mt-ws-5 flex justify-end gap-ws-3">
               <button type="button" onClick={() => setConfirming(false)} className="rounded-ws-sm border border-ws-line-strong px-ws-4 py-ws-2 text-ws-sm text-ws-text transition-all hover:bg-ws-steel-3">
                 Cancel
               </button>
-              <button type="button" onClick={run} className="rounded-ws-sm bg-ws-gold px-ws-4 py-ws-2 text-ws-sm font-semibold text-ws-text-on-gold transition-all hover:bg-ws-gold-bright">
+              <button type="button" onClick={run} disabled={unresolved.length > 0}
+                className="rounded-ws-sm bg-ws-gold px-ws-4 py-ws-2 text-ws-sm font-semibold text-ws-text-on-gold transition-all hover:bg-ws-gold-bright disabled:bg-ws-steel-3 disabled:text-ws-text-faint">
                 Regenerate
               </button>
             </div>

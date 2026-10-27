@@ -2,6 +2,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { type Ledger } from './fairness_engine.ts'
 import { makeAvailability, type Crew, type LeaveRange } from './schedule_engine.ts'
 import { seedHistory, type SeedRecord, canonicalHistory, replayGlobal, type HistoricalAssignment, type HistoricalOpportunity, type Opportunity, type RotaLane, type ScheduleVersion } from './rota_v2.ts'
+import type { WatchPin } from './watch_pins.ts'
 
 export async function rotaContext(req: Request) {
   const userClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, {
@@ -28,9 +29,9 @@ export async function readAll(admin: Admin, table: string, vesselId: string) {
   }
 }
 export async function loadRotaInputs(admin: Admin, vesselId: string) {
-  const [crewRows, laneRows, deptRows, leaveRows, charterRows] = await Promise.all([
+  const [crewRows, laneRows, deptRows, leaveRows, charterRows, pinRows] = await Promise.all([
     readAll(admin, 'crew_members', vesselId), readAll(admin, 'watch_lanes', vesselId), readAll(admin, 'lane_departments', vesselId),
-    readAll(admin, 'crew_leave', vesselId), readAll(admin, 'charter_periods', vesselId),
+    readAll(admin, 'crew_leave', vesselId), readAll(admin, 'charter_periods', vesselId), readAll(admin, 'watch_pins', vesselId),
   ])
   const crew = crewRows as (Crew & { full_name: string })[]
   const lanes: RotaLane[] = laneRows.filter(l => l.active).map(l => ({
@@ -39,7 +40,12 @@ export async function loadRotaInputs(admin: Admin, vesselId: string) {
   }))
   const leave: LeaveRange[] = leaveRows.filter(l => l.status === 'booked').map(l => ({ crew_id: l.crew_member_id, start: l.start_date, end: l.end_date }))
   const charters = charterRows.filter(c => c.status === 'booked').map(c => ({ start: c.start_date, end: c.end_date }))
-  return { crew, lanes, laneRows, leave, charters }
+  // docs/fixed-watches.md — captain-set pins, a configuration input like leave.
+  const pins: WatchPin[] = pinRows.map(p => ({
+    id: p.id, crew_member_id: p.crew_member_id, lane_id: p.lane_id,
+    watch_date: p.watch_date, acknowledged: p.acknowledged ?? [],
+  }))
+  return { crew, lanes, laneRows, leave, charters, pins }
 }
 
 // A pending amendment to the stored rota, replayed as if it were already saved.
@@ -117,7 +123,12 @@ export async function loadGlobalBase(admin: Admin, vesselId: string, before: str
     [...imported.assignments, ...past.assignments.filter(beyondSeed)].filter(a => currentIds.has(a.crew_id)),
     [...imported.opportunities, ...past.opportunities.filter(beyondSeed)].filter(o => currentIds.has(o.crew_id)),
   )
-  return { ledger, estimated, legacySnapshots }
+  // Watches standing BEFORE the window — the only history the fixed-watch
+  // neighbour rules may treat as fact (docs/fixed-watches.md). Everything from
+  // the window start onwards is about to be re-planned, so it is not yet a fact.
+  const stoodBefore = new Set<string>()
+  for (const a of [...imported.assignments, ...past.assignments]) stoodBefore.add(a.crew_id + ':' + a.watch_date)
+  return { ledger, estimated, legacySnapshots, stoodBefore }
 }
 
 export function validISODate(value: string) {

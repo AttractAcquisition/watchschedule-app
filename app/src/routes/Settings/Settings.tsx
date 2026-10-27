@@ -82,8 +82,14 @@ export default function Settings() {
   async function regenerate() {
     setRegenerating(true); setError(null)
     try {
-      const { error } = await supabase.functions.invoke('generate-schedule', { body: { regenerate: true } })
+      const { data, error } = await supabase.functions.invoke<{ requires_pin_consent?: boolean }>('generate-schedule', { body: { regenerate: true } })
       if (error) throw error
+      // docs/fixed-watches.md — a pin still awaiting consent refuses the run.
+      if (data?.requires_pin_consent) {
+        setError('A fixed watch still needs your consent — see Watch configuration → Advanced.')
+        setRegenerating(false)
+        return
+      }
       await queryClient.invalidateQueries({ queryKey: ['dashboard', vesselId] })
       navigate('/dashboard')
     } catch {

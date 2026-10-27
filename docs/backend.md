@@ -363,6 +363,28 @@ create table crew_leave (
 );
 create index on crew_leave(vessel_id);
 create index on crew_leave(crew_member_id);
+
+-- watch_pins (27 Oct 2026) — FIXED WATCHES: the captain pins a named crew member
+-- to a specific lane-day BEFORE generation (docs/fixed-watches.md). A CONFIGURATION
+-- input (client-RW, vessel-scoped), the same standing as crew_leave: it reaches the
+-- rota only through generate-schedule, which honours the pin and balances the rest
+-- around it. `acknowledged` holds the rule codes the captain has consented to for
+-- THIS pin; generation refuses while any violation is unacknowledged. The two
+-- unique constraints are the refusals that cannot be consented away.
+create table watch_pins (
+  id              uuid primary key default gen_random_uuid(),
+  vessel_id       uuid not null references vessels(id) on delete cascade,
+  crew_member_id  uuid not null references crew_members(id) on delete cascade,
+  lane_id         uuid not null references watch_lanes(id) on delete cascade,
+  watch_date      date not null,
+  acknowledged    text[] not null default '{}',
+  note            text,
+  created_at      timestamptz not null default now(),
+  constraint watch_pins_one_per_crew_day unique (vessel_id, crew_member_id, watch_date),
+  constraint watch_pins_one_per_lane_day unique (vessel_id, lane_id, watch_date)
+);
+create index on watch_pins(vessel_id);
+create index on watch_pins(crew_member_id);
 ```
 
 ### 2.3 `updated_at` trigger
@@ -432,6 +454,14 @@ create policy "charter_rw_own_vessel" on charter_periods
 -- crew_leave (C3) — also CLIENT-RW config input (the captain books/cancels leave):
 alter table crew_leave enable row level security;
 create policy "crew_leave_rw_own_vessel" on crew_leave
+  for all using (vessel_id = current_vessel_id())
+  with check (vessel_id = current_vessel_id());
+
+-- watch_pins (27 Oct 2026) — CLIENT-RW config (the captain fixes a watch, and
+-- records consent for anything it breaks). RLS is the gate; the rota tables it
+-- feeds stay server-only:
+alter table watch_pins enable row level security;
+create policy "watch_pins_rw_own_vessel" on watch_pins
   for all using (vessel_id = current_vessel_id())
   with check (vessel_id = current_vessel_id());
 
@@ -594,6 +624,10 @@ Runs the scheduling engine (`schedule.md`) using the persistent fairness ledger 
   "fairness": [ { "lane_id": "...", "members": [ { "crew_id": "...", "fairness_score": 91.2 } ] } ] }
 ```
 - The client then reads the schedule + fairness via RLS-scoped selects.
+- **Fixed watches (27 Oct 2026 — [fixed-watches.md](./fixed-watches.md)).** Before planning, the function evaluates `watch_pins` against the window this run will build, via `_shared/watch_pins.ts`. Two additions to the contract, both answering at **200** — consent and refusal are answers, not transport failures:
+  - `{ "preview_pins": true }` → `{ "preview": true, "start_date", "end_date", "pins": [ { "id", "crew_id", "crew_name", "lane_id", "lane_label", "watch_date", "days", "applies", "inert_reason", "violations", "blockers", "unacknowledged" } ] }`. **Writes nothing** — it is what the Advanced panel and the regenerate dialog render.
+  - On a real run, if any applying pin has an unacknowledged violation or a blocker: `{ "requires_pin_consent": true, "pins": [ … ] }`, and **nothing is written**.
+  Otherwise the pins are passed to `planGlobal`, which forces each pinned lane for that block, reserves the person vessel-wide for the day, grants them the opportunity and writes the watch through the ordinary `updateLedger` — so a pin costs its holder fairness exactly like a chosen watch. The event's `reason_code` is `fixed_watch`. A pin outside the window, on a charter-paused day, on a weekend when `include_weekends` is off, or on a retired lane is **inert**: reported as such and otherwise ignored.
 
 ### 6.7 `schedule-chat`
 Claude-powered Q&A grounded in the vessel's current schedule + fairness data. Answers "why is Alex on Friday?", "who has the most weekends?", "is it fair?".

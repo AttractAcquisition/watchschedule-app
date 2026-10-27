@@ -4,6 +4,8 @@
 
 > Approved 26 October 2026: [docs/manual-override.md](docs/manual-override.md) adds the captain's manual per-day override, reversing the "no manual schedule editing" exclusion in `docs/additions-v2.md` and `docs/additions.md`. One lane-day (or weekend block) may be reassigned by hand; the rest of the schedule is untouched, fairness is recomputed by the ordinary replay, and every engine rule broken needs its own acknowledgement. Server-only writes, RLS and determinism are unchanged.
 
+> Approved 27 October 2026: [docs/fixed-watches.md](docs/fixed-watches.md) adds the captain's **fixed watches** — pinning a named crew member to a specific date *before* generation, under Settings → Watch configuration → Advanced. Generation honours the pin exactly and balances the rest of the rota around it; the pinned watch lands on the ledger like any other, so fairness absorbs it. The neighbour rules (`monday_after_weekend`, `friday_into_weekend`) are checked against **facts only** — another pin, or a watch stood before the window — never against days the engine has yet to plan. New: table `watch_pins`, `_shared/watch_pins.ts`, a `preview_pins` mode and a consent gate on `generate-schedule` (migration `20261027010000`). Server-only writes, RLS and determinism are unchanged.
+
 This is the persistent operating contract for building WatchSchedule. Follow it in **every** session. It is derived **from `/docs`** — the six specification documents are the source of truth. This file summarises them; it never overrides them. When this file and a doc disagree, the doc wins and this file should be corrected.
 
 ---
@@ -82,8 +84,8 @@ These are load-bearing seams. The **names are exact** and identical across docs 
 - `seed-fairness` is the canonical directory; **`parse-past-schedule` is an alias for the same function** — do **not** create two.
 - Shared engine code lives in `supabase/functions/_shared/` (`fairness_constants.ts` + fairness engine + schedule engine + supabase admin client + cors), imported by both `generate-schedule` and `seed-fairness`. `fairness_constants.ts` is the single tuning point.
 
-### The 14 tables (backend.md §2)
-`vessels`, `profiles`, `crew_members`, `watch_settings`, `watch_lanes`, `schedules`, `watch_assignments`, `fairness_ledger`, `fairness_events`, `storage_uploads`, `chat_messages`, `charter_periods` (B7 — client-RW charter pause windows), `crew_leave` (C3 — client-RW dated per-crew leave), `lane_departments` (C4 — client-RW group→department junction, unique(vessel,dept) disjointness).
+### The 15 tables (backend.md §2)
+`vessels`, `profiles`, `crew_members`, `watch_settings`, `watch_lanes`, `schedules`, `watch_assignments`, `fairness_ledger`, `fairness_events`, `storage_uploads`, `chat_messages`, `charter_periods` (B7 — client-RW charter pause windows), `crew_leave` (C3 — client-RW dated per-crew leave), `lane_departments` (C4 — client-RW group→department junction, unique(vessel,dept) disjointness), `watch_pins` (27 Oct 2026 — client-RW fixed watches: one crew member pinned to one lane-day before generation).
 
 ### The one critical engine seam — must be **identical** in fairness.md and schedule.md
 ```

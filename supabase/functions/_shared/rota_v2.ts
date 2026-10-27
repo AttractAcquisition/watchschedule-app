@@ -1,6 +1,7 @@
 // V2: lane membership restricts candidacy; one vessel-wide ledger tracks service.
 import { addDays, isoWeekday, zeroEntry, updateLedger, selectionCost, computeFairnessScore, type Ledger, type LedgerEntry } from './fairness_engine.ts'
 import { makeAvailability, type Crew, type LeaveRange, type CharterRange, type ScheduleSettings, type PlannedAssignment } from './schedule_engine.ts'
+import { pinnedCrewForBlock, type EnginePin } from './watch_pins.ts'
 
 export const DEPARTMENTS = ['deck', 'interior', 'engineering', 'officer'] as const
 export interface RotaLane { id: string; label: string; departments: string[]; position: number }
@@ -119,7 +120,7 @@ export function globalScores(ledger: Ledger, ids: string[]) {
   }))
 }
 
-export function planGlobal(input: { startDate: string; settings: ScheduleSettings; lanes: RotaLane[]; crew: Crew[]; base: Ledger; leave?: LeaveRange[]; charters?: CharterRange[]; endDate?: string | null }) {
+export function planGlobal(input: { startDate: string; settings: ScheduleSettings; lanes: RotaLane[]; crew: Crew[]; base: Ledger; leave?: LeaveRange[]; charters?: CharterRange[]; endDate?: string | null; pins?: EnginePin[] }) {
   const lanes = [...input.lanes].sort((a, b) => a.position - b.position || cmp(a.id, b.id))
   const ledger: Ledger = Object.fromEntries(Object.entries(input.base).map(([id, e]) => [id, { ...e }]))
   const end = generationEnd(input.startDate, input.settings.horizon_weeks, input.endDate)
@@ -127,7 +128,12 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
   const horizon = spanWeeks(input.startDate, end)
   const available = makeAvailability(input.crew, input.leave ?? [])
   const pools = lanes.map(l => input.crew.filter(c => c.eligible && c.department && l.departments.includes(c.department)).map(c => c.id).sort(cmp))
-  const participants = [...new Set(pools.flat())]
+  // docs/fixed-watches.md — a pinned crew member stands a watch, so they are
+  // scored even when no lane pool would have drawn on them. Same reasoning as
+  // the manual override's consented out-of-pool assignee.
+  const crewIds = new Set(input.crew.map(c => c.id))
+  const pins = (input.pins ?? []).filter(p => crewIds.has(p.crew_id) && lanes.some(l => l.id === p.lane_id))
+  const participants = [...new Set([...pools.flat(), ...pins.map(p => p.crew_id)])].sort(cmp)
   const assignments: PlannedAssignment[] = []
   const opportunities: Opportunity[] = []
   const events: { lane_id: string; crew_id: string | null; watch_date: string; reason_code: string; detail: unknown }[] = []
@@ -143,7 +149,14 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
     const length = structure === 'fri_sat_sun_block' && wd === 5 ? 3 : structure !== 'per_day' && wd === 6 ? 2 : 1
     const days = Array.from({ length }, (_, i) => addDays(date, i)).filter(scheduled)
     const blockPools = pools.map(pool => pool.filter(id => days.every(d => available(id, d))))
-    for (const id of new Set(blockPools.flat())) for (const d of days) {
+    // Who the captain fixed to each lane for this block. A pin overrides pool
+    // membership and availability — it was made deliberately, and anything it
+    // breaks has already been consented to before generation was allowed to run.
+    const blockPins = lanes.map(lane => pinnedCrewForBlock(pins, lane.id, days))
+    const pinnedHere = blockPins.filter((id): id is string => !!id)
+    // The pinned crew member gains the opportunity too: they were available to
+    // stand it, and without the denominator the burden rate is meaningless.
+    for (const id of new Set([...blockPools.flat(), ...pinnedHere])) for (const d of days) {
       const o = { crew_id: id, watch_date: d }
       opportunities.push(o); addOpportunity(ledger, o)
     }
@@ -161,24 +174,26 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
       !!weekendFriday && (stood.has(id + ':' + weekendFriday) || ledger[id]?.last_watch_date === weekendFriday)
     type Candidate = { id: string; relaxed: number; relaxedKind: 'monday' | 'friday' | null; cost: number; total: number; scarce: number; last: string; consecutive: number }
     const compare = (a: Candidate, b: Candidate) => a.relaxed - b.relaxed || a.cost - b.cost || a.total - b.total || a.scarce - b.scarce || cmp(a.last, b.last) || a.consecutive - b.consecutive || tieRank.get(a.id)! - tieRank.get(b.id)!
+    const rank = (id: string): Candidate => {
+      const e = ledger[id] ?? zeroEntry(id)
+      // At most one exclusion is ever in force: a Monday is never a weekend day.
+      const mondayAfterWeekend = wd === 1 && (e.last_weekend_date === addDays(date, -1) || e.last_weekend_date === addDays(date, -2))
+      const fridayIntoWeekend = stoodWeekendFriday(id)
+      return {
+        id, relaxed: mondayAfterWeekend || fridayIntoWeekend ? 1 : 0,
+        relaxedKind: mondayAfterWeekend ? 'monday' as const : fridayIntoWeekend ? 'friday' as const : null,
+        cost: days.reduce((sum, d) => sum + selectionCost(e, d, isoWeekday(d) >= 6 ? 'weekend' : 'weekday', isoWeekday(d) === 5), 0),
+        total: e.total_watches, scarce: wd >= 6 ? e.weekend_watches : wd === 5 ? e.friday_watches : 0,
+        last: e.last_watch_date ?? '', consecutive: e.consecutive_run,
+      }
+    }
     const candidates = blockPools.map(pool => {
-      const ranked = pool.map(id => {
-        const e = ledger[id]
-        // At most one exclusion is ever in force: a Monday is never a weekend day.
-        const mondayAfterWeekend = wd === 1 && (e.last_weekend_date === addDays(date, -1) || e.last_weekend_date === addDays(date, -2))
-        const fridayIntoWeekend = stoodWeekendFriday(id)
-        return {
-          id, relaxed: mondayAfterWeekend || fridayIntoWeekend ? 1 : 0,
-          relaxedKind: mondayAfterWeekend ? 'monday' as const : fridayIntoWeekend ? 'friday' as const : null,
-          cost: days.reduce((sum, d) => sum + selectionCost(e, d, isoWeekday(d) >= 6 ? 'weekend' : 'weekday', isoWeekday(d) === 5), 0),
-          total: e.total_watches, scarce: wd >= 6 ? e.weekend_watches : wd === 5 ? e.friday_watches : 0,
-          last: e.last_watch_date ?? '', consecutive: e.consecutive_run,
-        }
-      }).sort(compare)
+      const ranked = pool.map(rank).sort(compare)
       // With at most N lanes only N-1 people can be occupied elsewhere. Keeping
       // the N best in each constraint class preserves the optimal matching.
       return [0, 1].flatMap(relaxed => ranked.filter(c => c.relaxed === relaxed).slice(0, lanes.length))
     })
+    const forced = blockPins.map(id => (id ? rank(id) : null))
     type Match = { picks: (Candidate | null)[]; filled: number; relaxed: number; cost: number }
     let best: Match | null = null
     const better = (a: Match, b: Match) => {
@@ -199,12 +214,20 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
         if (!best || better(match, best)) best = match
         return
       }
+      // A pinned lane is not searched: the captain already chose.
+      const pin = forced[picks.length]
+      if (pin) {
+        picks.push(pin); search(picks, used, relaxed + pin.relaxed, cost + pin.cost); picks.pop()
+        return
+      }
       for (const c of candidates[picks.length]) if (!used.has(c.id)) {
         used.add(c.id); picks.push(c); search(picks, used, relaxed + c.relaxed, cost + c.cost); picks.pop(); used.delete(c.id)
       }
       picks.push(null); search(picks, used, relaxed, cost); picks.pop()
     }
-    search([], new Set(), 0, 0)
+    // Pinned crew are reserved vessel-wide for the block before the search
+    // begins, so no other lane can take them that day.
+    search([], new Set(pinnedHere), 0, 0)
     const result = best as Match | null
     for (const d of days) {
       covered.add(d)
@@ -216,7 +239,7 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
           stood.add(c.id + ':' + d)
           updateLedger({ id: lane.id, kind: 'dept', department: null, pool: blockPools[i] }, c.id, d, a.day_type, a.is_friday, ledger)
         }
-        events.push({ lane_id: lane.id, crew_id: c?.id ?? null, watch_date: d, reason_code: !c ? 'no_eligible_crew' : c.relaxedKind ? `constraint_relaxed_${c.relaxedKind}_exclusion` : 'global_fairness_match', detail: { scope: 'vessel', block_days: days, pool: blockPools[i], candidates: candidates[i].map(c => ({ crew_id: c.id, cost: c.cost, monday_relaxed: c.relaxedKind === 'monday', friday_relaxed: c.relaxedKind === 'friday' })), selected_cost: c?.cost ?? null, matched_lanes: result?.filled, relaxed: !!c?.relaxed } })
+        events.push({ lane_id: lane.id, crew_id: c?.id ?? null, watch_date: d, reason_code: !c ? 'no_eligible_crew' : blockPins[i] ? 'fixed_watch' : c.relaxedKind ? `constraint_relaxed_${c.relaxedKind}_exclusion` : 'global_fairness_match', detail: { scope: 'vessel', block_days: days, pool: blockPools[i], pinned: !!blockPins[i], candidates: candidates[i].map(c => ({ crew_id: c.id, cost: c.cost, monday_relaxed: c.relaxedKind === 'monday', friday_relaxed: c.relaxedKind === 'friday' })), selected_cost: c?.cost ?? null, matched_lanes: result?.filled, relaxed: !!c?.relaxed } })
       })
     }
   }

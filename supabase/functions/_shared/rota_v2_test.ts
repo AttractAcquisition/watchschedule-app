@@ -205,3 +205,76 @@ Deno.test('a planned-ahead window never costs the crew their earlier duty in the
   const past = canonicalHistory(versions, [asg('nov', '2026-11-10'), asg('dec', '2026-12-10')], [], '2026-12-15')
   assert.deepEqual(past.assignments.map(a => a.schedule_id), ['nov', 'dec'])
 })
+
+// --- Fixed watches (docs/fixed-watches.md) ---------------------------------
+// 2026-09-21 is a Monday; the window's weekends are 26/27 Sep, 3/4, 10/11, 17/18 Oct.
+const WEEKEND_DAYS = ['2026-09-26', '2026-09-27', '2026-10-03', '2026-10-04', '2026-10-10', '2026-10-11', '2026-10-17', '2026-10-18']
+
+Deno.test('a fixed watch is honoured exactly, and the engine plans the rest around it', () => {
+  const pins = [{ lane_id: '1', crew_id: 'c', watch_date: '2026-09-26' }]
+  const p = run(['a', 'b', 'c'].map(id => crew(id)), [lane('1')], { pins })
+  assert.equal(p.assignments.find(a => a.watch_date === '2026-09-26')?.crew_id, 'c')
+  assert.equal(p.gaps.length, 0)
+  // The pin is recorded as the reason, not dressed up as a fairness match.
+  const event = p.events.find(e => e.watch_date === '2026-09-26')!
+  assert.equal(event.reason_code, 'fixed_watch')
+  assert.equal((event.detail as { pinned: boolean }).pinned, true)
+})
+
+Deno.test('a pinned watch lands on the ledger, so fairness absorbs it', () => {
+  const pins = WEEKEND_DAYS.map(d => ({ lane_id: '1', crew_id: 'c', watch_date: d }))
+  const p = run(['a', 'b', 'c'].map(id => crew(id)), [lane('1')], { pins })
+  const score = (id: string) => p.scores.find(s => s.crew_id === id)!
+  assert.equal(score('c').weekend_watches, WEEKEND_DAYS.length)
+  assert.equal(score('a').weekend_watches, 0)
+  assert.equal(score('b').weekend_watches, 0)
+  // Standing every weekend, c is carrying more than their share.
+  assert.ok(score('c').deviation > 0)
+  // And the rest rule still protects them: no Monday straight off those weekends.
+  for (const monday of ['2026-09-28', '2026-10-05', '2026-10-12', '2026-10-19']) {
+    assert.ok(!p.assignments.some(a => a.watch_date === monday && a.crew_id === 'c'))
+  }
+})
+
+Deno.test('a pinned person is reserved vessel-wide for that day', () => {
+  const pins = [{ lane_id: '2', crew_id: 'a', watch_date: '2026-09-26' }]
+  const p = run(['a', 'b', 'c'].map(id => crew(id)), [lane('1'), lane('2')], { pins })
+  const day = p.assignments.filter(a => a.watch_date === '2026-09-26')
+  assert.equal(day.find(a => a.lane_id === '2')?.crew_id, 'a')
+  assert.ok(!day.some(a => a.lane_id === '1' && a.crew_id === 'a'))
+  assert.equal(new Set(day.map(a => a.crew_id)).size, day.length)
+})
+
+Deno.test('a pinned crew member outside every lane pool still stands, and is scored for it', () => {
+  const pins = [{ lane_id: '1', crew_id: 'x', watch_date: '2026-09-26' }]
+  const p = run([crew('a'), crew('x', 'interior')], [lane('1', ['deck'])], { pins })
+  assert.equal(p.assignments.find(a => a.watch_date === '2026-09-26')?.crew_id, 'x')
+  const x = p.scores.find(s => s.crew_id === 'x')!
+  assert.equal(x.total_watches, 1)
+  assert.ok(x.weekend_opportunities > 0)
+})
+
+Deno.test('pins never disturb determinism', () => {
+  const pins = [
+    { lane_id: '1', crew_id: 'c', watch_date: '2026-09-26' },
+    { lane_id: '2', crew_id: 'a', watch_date: '2026-10-03' },
+  ]
+  const people = ['a', 'b', 'c', 'd'].map(id => crew(id))
+  const lanes = [lane('1'), lane('2')]
+  assert.deepEqual(run(people, lanes, { pins }), run(people, lanes, { pins: [...pins].reverse() }))
+})
+
+Deno.test('a pin on a day the schedule never covers is simply ignored', () => {
+  const people = ['a', 'b', 'c'].map(id => crew(id))
+  const plain = run(people, [lane('1')])
+  // Weekends off: a weekend pin has nothing to attach to.
+  const pins = [{ lane_id: '1', crew_id: 'c', watch_date: '2026-09-26' }]
+  const noWeekends = { settings: { ...settings, include_weekends: false } }
+  assert.deepEqual(
+    run(people, [lane('1')], { ...noWeekends, pins }),
+    run(people, [lane('1')], noWeekends),
+  )
+  // An unknown lane or crew id cannot smuggle anything in either.
+  assert.deepEqual(run(people, [lane('1')], { pins: [{ lane_id: 'nope', crew_id: 'c', watch_date: '2026-09-26' }] }), plain)
+  assert.deepEqual(run(people, [lane('1')], { pins: [{ lane_id: '1', crew_id: 'nope', watch_date: '2026-09-26' }] }), plain)
+})

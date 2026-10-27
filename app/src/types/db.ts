@@ -838,6 +838,61 @@ export type Database = {
           },
         ]
       }
+      watch_pins: {
+        Row: {
+          acknowledged: string[]
+          created_at: string
+          crew_member_id: string
+          id: string
+          lane_id: string
+          note: string | null
+          vessel_id: string
+          watch_date: string
+        }
+        Insert: {
+          acknowledged?: string[]
+          created_at?: string
+          crew_member_id: string
+          id?: string
+          lane_id: string
+          note?: string | null
+          vessel_id: string
+          watch_date: string
+        }
+        Update: {
+          acknowledged?: string[]
+          created_at?: string
+          crew_member_id?: string
+          id?: string
+          lane_id?: string
+          note?: string | null
+          vessel_id?: string
+          watch_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "watch_pins_crew_member_id_fkey"
+            columns: ["crew_member_id"]
+            isOneToOne: false
+            referencedRelation: "crew_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "watch_pins_lane_id_fkey"
+            columns: ["lane_id"]
+            isOneToOne: false
+            referencedRelation: "watch_lanes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "watch_pins_vessel_id_fkey"
+            columns: ["vessel_id"]
+            isOneToOne: false
+            referencedRelation: "vessels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       watch_settings: {
         Row: {
           created_at: string
