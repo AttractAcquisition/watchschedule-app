@@ -1,5 +1,7 @@
 # Fixed watches — pinning a crew member to a date before generation — approved 27 October 2026
 
+Backend verification (6 November 2026): a pin's crew member and lane must belong to its vessel, enforced by composite foreign keys. Every pin insert, update (including consent), or delete increments `rota_revision`, so a generation calculated before that change cannot publish over it. Migration `20261106010000_watch_pin_integrity.sql` adds these safeguards without changing existing pins or schedules.
+
 The captain names someone for a specific date **before** the rota is built: "Marco stands the weekend of the 14th." Generation then plans everything else around that, under the ordinary fairness rules. This is the mirror image of [manual-override.md](manual-override.md), which changes one cell **after** generation; a fixed watch is an *input* to generation, not an edit of its output.
 
 It does not reverse any exclusion in `additions.md` or `additions-v2.md`: those rule out manual editing of a generated schedule, which the 26 October contract already addressed. Pinning is a configuration input, like `crew_leave` or `charter_periods`.

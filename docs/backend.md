@@ -1,5 +1,7 @@
 > Rota V2 amendment (22 September 2026): [rota-v2.md](./rota-v2.md) supersedes older department limits, disjoint grouping, per-lane fairness and generation persistence described below.
 
+> Fixed-watch integrity (6 November 2026): `watch_pins` uses composite foreign keys `(crew_member_id,vessel_id)` and `(lane_id,vessel_id)` to enforce same-vessel ownership. Pin insert/update/delete invokes `bump_rota_revision`, including consent edits, preventing stale generation from publishing. See [fixed-watches.md](./fixed-watches.md); migration `20261106010000`.
+
 <!-- WatchSchedule spec set — v2 (cross-referenced & seam-verified). Document 3 of 6: backend. AUTHORITATIVE for data contracts; on conflict this doc wins for behaviour. -->
 # backend.md — WatchSchedule Backend Architecture
 

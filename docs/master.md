@@ -13,6 +13,8 @@
 <!-- WatchSchedule spec set — v2 (cross-referenced & seam-verified). Document 6 of 6: master orchestrator. READ THIS FIRST. See §0.1 for the verified cross-document seam index. -->
 # master.md — WatchSchedule Build Orchestrator
 
+> Backend verification (6 November 2026): fixed watches now enforce same-vessel crew/lane references and participate in the generation revision check. See [fixed-watches.md](./fixed-watches.md), migration `20261106010000`, and rollback-only `supabase/tests/watch_pin_integrity.sql`. Deployment evidence is in [backend-verification-2026-11-06.md](./backend-verification-2026-11-06.md).
+
 > **Read this first.** This is the control document for building WatchSchedule with Claude Code. It explains the system, the rules of engagement, and the **ordered build plan** — a sequence of self-contained prompts. Each phase names exactly which context documents to load, what to build, and how to verify it before proceeding. The five companion documents are the source of truth for their domains; this document is the conductor.
 
 ---

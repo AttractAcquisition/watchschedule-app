@@ -872,17 +872,17 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "watch_pins_crew_member_id_fkey"
-            columns: ["crew_member_id"]
+            columns: ["crew_member_id", "vessel_id"]
             isOneToOne: false
             referencedRelation: "crew_members"
-            referencedColumns: ["id"]
+            referencedColumns: ["id", "vessel_id"]
           },
           {
             foreignKeyName: "watch_pins_lane_id_fkey"
-            columns: ["lane_id"]
+            columns: ["lane_id", "vessel_id"]
             isOneToOne: false
             referencedRelation: "watch_lanes"
-            referencedColumns: ["id"]
+            referencedColumns: ["id", "vessel_id"]
           },
           {
             foreignKeyName: "watch_pins_vessel_id_fkey"

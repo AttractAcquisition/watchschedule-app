@@ -3,6 +3,8 @@
 <!-- WatchSchedule spec set — v2 (cross-referenced & seam-verified). Document 5 of 6: schedule. Owns generation orchestration. Seam with fairness.md: selectCandidate(lane, date, dayType, isFriday, ledger, alreadyAssigned) -> { crew_id, reason_code, detail }. -->
 # schedule.md — WatchSchedule Generation Engine
 
+> Fixed-watch concurrency (6 November 2026): pin insert/update/delete bumps `rota_revision`, so `publish_rota` refuses a generation calculated before a pin or its consent changed. See [fixed-watches.md](./fixed-watches.md).
+
 > **Purpose.** This document specifies the watch-schedule generation engine — the orchestration that turns crew + settings + the fairness ledger into a concrete rota written to the database. It is the spec for the `generate-schedule` Edge Function (`backend.md`). The *definition of fairness* (eligible-set constraints, candidate cost, tie-breaking, ledger updates, score) lives in `fairness.md`; **this document owns iteration, lane structure, the two-rotation mechanics, persistence, and regeneration.** Together they fully define generation.
 
 **Determinism (inherited).** Same crew + settings + ledger -> identical schedule. The engine is a pure function of its inputs plus the ordered rules in `fairness.md`. No randomness anywhere.

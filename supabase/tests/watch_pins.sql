@@ -21,6 +21,7 @@ begin
  select id into l1 from watch_lanes where vessel_id=v and position=1;
  select id into l2 from watch_lanes where vessel_id=v and position=2;
 
+ set local role authenticated;
  -- The captain owns this table: an ordinary authenticated insert must succeed.
  insert into watch_pins(vessel_id,crew_member_id,lane_id,watch_date) values(v,c1,l1,'2026-11-14');
  if (select count(*) from watch_pins where vessel_id=v)<>1 then raise exception 'TEST: captain could not pin a watch'; end if;
@@ -64,6 +65,7 @@ begin
  perform set_config('request.jwt.claim.sub',u::text,true);
  if (select count(*) from watch_pins where vessel_id=v)<>3 then raise exception 'TEST: another vessel deleted our pins'; end if;
 
+ reset role;
  -- Pins are configuration, so they follow the crew member and the lane out.
  delete from crew_members where id=c2;
  if (select count(*) from watch_pins where crew_member_id=c2)<>0 then raise exception 'TEST: pin outlived its crew member'; end if;
