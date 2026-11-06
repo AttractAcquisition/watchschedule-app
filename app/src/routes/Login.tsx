@@ -5,11 +5,12 @@
 // (OAuth is deferred: it needs provider credentials configured server-side;
 // noted for a later phase per frontend.md §4.1.)
 import { useState, type FormEvent } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { Anchor, Loader2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../auth/AuthGate'
 import { ZONE_PATH } from '../auth/gate'
+import { PASSWORD_MIN_LENGTH } from '../auth/accountValidation'
 
 type Mode = 'signin' | 'signup'
 
@@ -54,11 +55,11 @@ export default function Login() {
     setBusy(true)
     try {
       if (mode === 'signin') {
-        const { error } = await supabase.auth.signInWithPassword({ email, password })
+        const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
         if (error) throw error
         // On success, onAuthStateChange updates the gate and we redirect above.
       } else {
-        const { data, error } = await supabase.auth.signUp({ email, password })
+        const { data, error } = await supabase.auth.signUp({ email: email.trim(), password })
         if (error) throw error
         if (!data.session) {
           // Email-confirmation is enabled: no session yet.
@@ -124,7 +125,7 @@ export default function Login() {
               type="password"
               autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
               required
-              minLength={6}
+              minLength={mode === 'signup' ? PASSWORD_MIN_LENGTH : undefined}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full rounded-ws-sm border border-ws-line bg-ws-steel-3 px-ws-3 py-ws-2 text-ws-base text-ws-text placeholder:text-ws-text-faint focus:border-ws-gold focus:outline-none focus:ring-2 focus:ring-ws-gold-ghost"
@@ -152,6 +153,8 @@ export default function Login() {
             {mode === 'signin' ? 'Sign in' : 'Create account'}
           </button>
         </form>
+
+        {mode === 'signin' && <Link to="/forgot-password" className="mt-ws-4 block text-center text-ws-sm text-ws-gold hover:text-ws-gold-bright">Forgot password?</Link>}
 
         <p className="mt-ws-4 text-center text-ws-sm text-ws-text-muted">
           {mode === 'signin' ? "Don't have an account?" : 'Already have an account?'}{' '}

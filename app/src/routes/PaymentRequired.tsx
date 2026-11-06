@@ -173,7 +173,7 @@ export default function PaymentRequired() {
 
         <p className="mt-ws-6 text-center font-mono text-ws-xs text-ws-text-faint">
           payment_status: {profile?.payment_status ?? '—'} ·{' '}
-          <button type="button" onClick={signOut} className="text-ws-gold hover:text-ws-gold-bright">
+          <button type="button" onClick={() => { void signOut() }} className="text-ws-gold hover:text-ws-gold-bright">
             Sign out
           </button>
         </p>

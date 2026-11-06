@@ -59,7 +59,7 @@ export default function Onboarding() {
 
         <button
           type="button"
-          onClick={signOut}
+          onClick={() => { void signOut() }}
           className="mt-ws-5 text-ws-sm font-medium text-ws-gold hover:text-ws-gold-bright"
         >
           Sign out

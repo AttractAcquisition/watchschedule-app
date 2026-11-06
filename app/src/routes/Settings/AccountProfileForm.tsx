@@ -1,108 +1,105 @@
-import { useState } from 'react'
-import { Check, KeyRound, Loader2, Pencil, X } from 'lucide-react'
+import { useRef, useState, type FormEvent } from 'react'
+import { KeyRound, Pencil } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
+import { authRedirectUrl } from '../../lib/appUrl'
 import { queryClient } from '../../lib/queryClient'
 import { useAuth } from '../../auth/AuthGate'
 import { profileQueryKey } from '../../auth/useProfile'
-
-const usernamePattern = /^[a-z0-9][a-z0-9_-]{2,31}$/
+import { accountError, cleanEmail, validEmail, usernamePattern, USERNAME_HELP } from '../../auth/accountValidation'
+import { PasswordForm } from '../../components/auth/PasswordForm'
+import { RecoveryRequestForm, authInput, authButton } from '../../components/auth/RecoveryRequestForm'
 
 export function AccountProfileForm() {
-  const { profile, session } = useAuth()
+  const { profile, session, refreshUser } = useAuth()
   const userId = session?.user.id
+  const email = session?.user.email
+  const pendingEmail = session?.user.new_email
   const [editing, setEditing] = useState(false)
   const [passwordOpen, setPasswordOpen] = useState(false)
-  const [name, setName] = useState(profile?.full_name ?? '')
-  const [username, setUsername] = useState(profile?.username ?? '')
-  const [newPassword, setNewPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
-  const [changingPassword, setChangingPassword] = useState(false)
+  const [emailOpen, setEmailOpen] = useState(false)
+  const [name, setName] = useState('')
+  const [username, setUsername] = useState('')
+  const [newEmail, setNewEmail] = useState('')
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
+  const inFlight = useRef(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
 
-  const email = session?.user.email ?? profile?.email ?? '—'
-  const resetEdit = () => {
-    setEditing(false)
+  function editProfile() {
+    // Read the latest fetched profile each time editing opens, rather than a
+    // useState initializer that can outlive an asynchronous profile refresh.
     setName(profile?.full_name ?? '')
     setUsername(profile?.username ?? '')
-    setError(null)
+    setEditing(true); setError(''); setNotice('')
   }
-
-  async function saveProfile() {
-    const cleanName = name.trim()
+  async function saveProfile(event: FormEvent) {
+    event.preventDefault()
+    if (inFlight.current || !userId) return
+    const full_name = name.trim()
     const cleanUsername = username.trim().toLowerCase()
-    if (!cleanName) return setError('Enter your name.')
-    if (!usernamePattern.test(cleanUsername)) return setError('Username must be 3–32 lowercase letters, numbers, hyphens, or underscores.')
-    if (!userId) return
-    setSaving(true); setError(null); setNotice(null)
+    if (!full_name) { setError('Enter your name.'); return }
+    if (!usernamePattern.test(cleanUsername)) { setError(USERNAME_HELP); return }
+    inFlight.current = true; setSaving(true); setError(''); setNotice('')
     try {
-      const { error } = await supabase.from('profiles').update({ full_name: cleanName, username: cleanUsername }).eq('id', userId)
+      const { data, error } = await supabase.from('profiles')
+        .update({ full_name, username: cleanUsername }).eq('id', userId).select('*').single()
       if (error) throw error
+      queryClient.setQueryData(profileQueryKey(userId), data)
       await queryClient.invalidateQueries({ queryKey: profileQueryKey(userId) })
-      setEditing(false)
-      setNotice('Profile saved.')
-    } catch {
-      setError('That username is unavailable. Please choose another one.')
-    } finally {
-      setSaving(false)
-    }
+      setEditing(false); setNotice('Profile saved.')
+    } catch (err) { setError(accountError(err, 'profile')) }
+    finally { inFlight.current = false; setSaving(false) }
   }
-
-  async function changePassword() {
-    if (newPassword.length < 6) return setError('Use a password of at least 6 characters.')
-    if (newPassword !== confirmPassword) return setError('The new passwords do not match.')
-    setChangingPassword(true); setError(null); setNotice(null)
+  async function changeEmail(event: FormEvent) {
+    event.preventDefault()
+    if (inFlight.current || !userId) return
+    const proposed = cleanEmail(newEmail)
+    if (!validEmail(proposed)) { setError('Enter a valid email address.'); return }
+    if (proposed.toLowerCase() === email?.toLowerCase()) { setError('That is already your current login email.'); return }
+    inFlight.current = true; setSaving(true); setError(''); setNotice('')
     try {
-      const { error } = await supabase.auth.updateUser({ password: newPassword })
+      const { data, error } = await supabase.auth.updateUser({ email: proposed }, { emailRedirectTo: authRedirectUrl('/account-confirmation') })
       if (error) throw error
-      setNewPassword(''); setConfirmPassword('')
-      setPasswordOpen(false)
-      setNotice('Password updated.')
-    } catch {
-      setError("Couldn't update your password. Please try again.")
-    } finally {
-      setChangingPassword(false)
-    }
+      setNewEmail(''); setEmailOpen(false)
+      // Never promote a proposed address to the confirmed email in local UI.
+      setNotice(data.user.email?.toLowerCase() === proposed.toLowerCase()
+        ? 'Supabase confirmed your current login email.'
+        : 'Email change requested. Confirm the messages sent to your current and new addresses. Your login email stays unchanged until Auth confirms the change.')
+      await refreshUser().catch(() => setError('The email change was requested, but account refresh failed. Refresh this page to check its confirmation status.'))
+    } catch (err) { setError(accountError(err, 'email')) }
+    finally { inFlight.current = false; setSaving(false) }
   }
-
-  return (
-    <section className="rounded-ws-md border border-ws-line bg-ws-steel p-ws-4 shadow-ws-md">
-      <div className="flex flex-wrap items-start justify-between gap-ws-3">
-        <div>
-          <p className="ws-eyebrow">— Your account</p>
-          <h2 className="mt-ws-1 font-display text-ws-md font-semibold text-ws-offwhite">Profile &amp; sign-in</h2>
-        </div>
-        <div className="flex items-center gap-ws-2">
-          <button type="button" onClick={() => { setPasswordOpen(true); setNotice(null) }} className="flex items-center gap-ws-2 rounded-ws-sm px-ws-3 py-ws-2 text-ws-sm text-ws-text-muted hover:bg-ws-steel-3 hover:text-ws-text"><KeyRound className="h-4 w-4" strokeWidth={1.5} aria-hidden /> Password</button>
-          <button type="button" onClick={() => { setEditing(true); setNotice(null) }} className="flex items-center gap-ws-2 rounded-ws-sm border border-ws-line-strong px-ws-3 py-ws-2 text-ws-sm font-medium text-ws-text hover:border-ws-gold hover:bg-ws-steel-3"><Pencil className="h-4 w-4" strokeWidth={1.5} aria-hidden /> Edit</button>
-        </div>
+  return <section className="rounded-ws-md border border-ws-line bg-ws-steel p-ws-4 shadow-ws-md">
+    <div className="flex flex-wrap items-start justify-between gap-ws-3">
+      <div><p className="ws-eyebrow">— Your account</p><h2 className="mt-ws-1 font-display text-ws-md font-semibold text-ws-offwhite">Profile &amp; sign-in</h2></div>
+      <div className="flex items-center gap-ws-2">
+        <button type="button" onClick={() => { setPasswordOpen(v => !v); setNotice(''); setError('') }} aria-expanded={passwordOpen} aria-controls="account-password" className="flex items-center gap-ws-2 rounded-ws-sm px-ws-3 py-ws-2 text-ws-sm text-ws-text-muted hover:bg-ws-steel-3"><KeyRound className="h-4 w-4" aria-hidden /> Password</button>
+        <button type="button" onClick={editProfile} disabled={saving} className="flex items-center gap-ws-2 rounded-ws-sm border border-ws-line-strong px-ws-3 py-ws-2 text-ws-sm text-ws-text"><Pencil className="h-4 w-4" aria-hidden /> Edit profile</button>
       </div>
-
-      <dl className="mt-ws-4 grid gap-ws-3 sm:grid-cols-3">
-        <div><dt className="text-ws-xs text-ws-text-muted">Name</dt><dd className="mt-ws-1 text-ws-sm text-ws-text">{profile?.full_name || 'Not set'}</dd></div>
-        <div><dt className="text-ws-xs text-ws-text-muted">Username</dt><dd className="mt-ws-1 font-mono text-ws-sm text-ws-text">{profile?.username ? `@${profile.username}` : 'Not set'}</dd></div>
-        <div><dt className="text-ws-xs text-ws-text-muted">Email</dt><dd className="mt-ws-1 truncate text-ws-sm text-ws-text">{email}</dd></div>
-      </dl>
-
-      {error && <p role="alert" className="mt-ws-3 text-ws-sm text-ws-alert">{error}</p>}
-      {notice && <p role="status" className="mt-ws-3 text-ws-sm text-ws-ok">{notice}</p>}
-
-      {editing && <div className="fixed inset-0 z-50 flex items-center justify-center bg-ws-navy-deep/70 p-ws-5" role="dialog" aria-modal="true" aria-label="Edit profile">
-        <div className="w-full max-w-md rounded-ws-lg border border-ws-line bg-ws-steel-2 p-ws-5 shadow-ws-lg">
-          <div className="flex items-center justify-between"><h3 className="font-display text-ws-md font-semibold text-ws-offwhite">Edit profile</h3><button type="button" onClick={resetEdit} aria-label="Close" className="flex h-10 w-10 items-center justify-center rounded-ws-sm text-ws-text-muted hover:bg-ws-steel-3"><X className="h-4 w-4" aria-hidden /></button></div>
-          <div className="mt-ws-4 space-y-ws-3"><label className="block text-ws-xs text-ws-text-muted">Name<input value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" className="mt-ws-1 w-full rounded-ws-sm border border-ws-line bg-ws-steel-3 px-ws-3 py-ws-2 text-ws-sm text-ws-text focus:border-ws-gold focus:outline-none" /></label><label className="block text-ws-xs text-ws-text-muted">Username<input value={username} onChange={(e) => setUsername(e.target.value.toLowerCase())} autoComplete="username" spellCheck={false} className="mt-ws-1 w-full rounded-ws-sm border border-ws-line bg-ws-steel-3 px-ws-3 py-ws-2 text-ws-sm text-ws-text focus:border-ws-gold focus:outline-none" /></label></div>
-          <div className="mt-ws-5 flex justify-end"><button type="button" onClick={saveProfile} disabled={saving} className="flex items-center gap-ws-2 rounded-ws-sm bg-ws-gold px-ws-4 py-ws-2 text-ws-sm font-semibold text-ws-text-on-gold disabled:opacity-60">{saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Check className="h-4 w-4" aria-hidden />} Save profile</button></div>
-        </div>
-      </div>}
-
-      {passwordOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-ws-navy-deep/70 p-ws-5" role="dialog" aria-modal="true" aria-label="Reset password">
-        <div className="w-full max-w-md rounded-ws-lg border border-ws-line bg-ws-steel-2 p-ws-5 shadow-ws-lg">
-          <div className="flex items-center justify-between"><div><p className="ws-eyebrow">— Security</p><h3 className="mt-ws-1 font-display text-ws-md font-semibold text-ws-offwhite">Set a new password</h3></div><button type="button" onClick={() => setPasswordOpen(false)} aria-label="Close" className="flex h-10 w-10 items-center justify-center rounded-ws-sm text-ws-text-muted hover:bg-ws-steel-3"><X className="h-4 w-4" aria-hidden /></button></div>
-          <div className="mt-ws-4 space-y-ws-3"><input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} autoComplete="new-password" placeholder="New password" className="w-full rounded-ws-sm border border-ws-line bg-ws-steel-3 px-ws-3 py-ws-2 text-ws-sm text-ws-text placeholder:text-ws-text-faint focus:border-ws-gold focus:outline-none" /><input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} autoComplete="new-password" placeholder="Confirm new password" className="w-full rounded-ws-sm border border-ws-line bg-ws-steel-3 px-ws-3 py-ws-2 text-ws-sm text-ws-text placeholder:text-ws-text-faint focus:border-ws-gold focus:outline-none" /></div>
-          <div className="mt-ws-5 flex justify-end"><button type="button" onClick={changePassword} disabled={changingPassword || !newPassword || !confirmPassword} className="flex items-center gap-ws-2 rounded-ws-sm bg-ws-gold px-ws-4 py-ws-2 text-ws-sm font-semibold text-ws-text-on-gold disabled:opacity-60">{changingPassword && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />} Update password</button></div>
-        </div>
-      </div>}
-    </section>
-  )
+    </div>
+    <dl className="mt-ws-4 grid gap-ws-3 sm:grid-cols-3">
+      <div><dt className="text-ws-xs text-ws-text-muted">Name</dt><dd className="mt-ws-1 text-ws-sm text-ws-text">{profile?.full_name || 'Not set'}</dd></div>
+      <div><dt className="text-ws-xs text-ws-text-muted">Username</dt><dd className="mt-ws-1 font-mono text-ws-sm text-ws-text">{profile?.username ? `@${profile.username}` : 'Not set'}</dd></div>
+      <div><dt className="text-ws-xs text-ws-text-muted">Login email</dt><dd className="mt-ws-1 break-words text-ws-sm text-ws-text">{email ?? 'Not available'}</dd></div>
+    </dl>
+    {pendingEmail && <p role="status" className="mt-ws-3 break-words text-ws-sm text-ws-text-muted">Pending email change: {pendingEmail}. Complete the confirmation emails; the login email above is still current.</p>}
+    <button type="button" disabled={saving} onClick={() => { setEmailOpen(v => !v); setError(''); setNotice('') }} aria-expanded={emailOpen} className="mt-ws-3 text-ws-sm text-ws-gold">Change login email</button>
+    {notice && <p role="status" className="mt-ws-3 text-ws-sm text-ws-ok">{notice}</p>}
+    {error && <p role="alert" className="mt-ws-3 text-ws-sm text-ws-alert">{error}</p>}
+    {editing && <form onSubmit={saveProfile} noValidate aria-label="Edit profile" className="mt-ws-4 space-y-ws-3 border-t border-ws-line pt-ws-4">
+      <label className="block text-ws-sm text-ws-text-muted">Name<input autoComplete="name" required value={name} onChange={e => setName(e.target.value)} disabled={saving} className={`mt-ws-1 ${authInput}`} /></label>
+      <label className="block text-ws-sm text-ws-text-muted">Username<input autoComplete="username" spellCheck={false} required value={username} onChange={e => setUsername(e.target.value.toLowerCase())} disabled={saving} aria-describedby="username-help" className={`mt-ws-1 ${authInput}`} /></label>
+      <p id="username-help" className="text-ws-xs text-ws-text-muted">{USERNAME_HELP}</p>
+      <div className="flex gap-ws-3"><button disabled={saving} className={authButton}>{saving ? 'Saving…' : 'Save profile'}</button><button type="button" disabled={saving} onClick={() => { setEditing(false); setError('') }} className="text-ws-sm text-ws-text-muted">Cancel</button></div>
+    </form>}
+    {emailOpen && <form onSubmit={changeEmail} noValidate aria-label="Change login email" className="mt-ws-4 space-y-ws-3 border-t border-ws-line pt-ws-4">
+      <p className="text-ws-sm text-ws-text-muted">This changes your sign-in address after confirmation. It does not change a separate Stripe billing contact.</p>
+      <label className="block text-ws-sm text-ws-text-muted">New login email<input type="email" autoComplete="email" required value={newEmail} onChange={e => setNewEmail(e.target.value)} disabled={saving} className={`mt-ws-1 ${authInput}`} /></label>
+      <button disabled={saving} className={authButton}>{saving ? 'Requesting…' : 'Request email change'}</button>
+    </form>}
+    {passwordOpen && <div id="account-password" className="mt-ws-4 space-y-ws-5 border-t border-ws-line pt-ws-4">
+      <div><h3 className="mb-ws-3 font-display text-ws-md text-ws-offwhite">Change your password now</h3><PasswordForm key={userId} mode="change" onUpdated={() => { setPasswordOpen(false); setNotice('Password updated. You remain signed in on this browser.'); setError('') }} /></div>
+      {email && <div className="border-t border-ws-line pt-ws-4"><h3 className="mb-ws-3 font-display text-ws-md text-ws-offwhite">Prefer an email link?</h3><RecoveryRequestForm email={email} /></div>}
+    </div>}
+  </section>
 }

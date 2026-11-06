@@ -1,0 +1,17 @@
+# Narrow production auth redirects only. Undeclared cloud settings are left
+# unchanged by `supabase config push`. Never put SMTP credentials in this file.
+project_id = "gvpyknochnntoqsetomk"
+
+[auth]
+site_url = "https://app.watchschedule.com"
+additional_redirect_urls = [
+  "https://app.watchschedule.com/",
+  "https://app.watchschedule.com/reset-password",
+  "https://app.watchschedule.com/account-confirmation",
+  "http://localhost:5173/",
+  "http://localhost:5173/reset-password",
+  "http://localhost:5173/account-confirmation",
+  "http://127.0.0.1:5173/",
+  "http://127.0.0.1:5173/reset-password",
+  "http://127.0.0.1:5173/account-confirmation",
+]

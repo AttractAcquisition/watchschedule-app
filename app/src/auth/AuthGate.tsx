@@ -8,27 +8,34 @@
 //  - RLS is the real gate; these guards are UX only.
 //  - While resolving we render a calm loader, never /login — so a hard refresh
 //    on an authed route does NOT flash to login before re-resolving.
-import { createContext, useContext, useCallback, type ReactNode } from 'react'
+import { createContext, useContext, useCallback, useEffect, type ReactNode } from 'react'
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import type { Session } from '@supabase/supabase-js'
 import { useSession } from './useSession'
 import { useProfile, type Profile } from './useProfile'
 import { resolveZone, ZONE_PATH, type GateZone } from './gate'
-import { supabase } from '../lib/supabase'
+import { authState, supabase } from '../lib/supabase'
 import { queryClient } from '../lib/queryClient'
+import { profileQueryKey } from './useProfile'
+import type { RecoveryStatus } from './authState'
 
 interface AuthState {
   loading: boolean
   session: Session | null
   profile: Profile | null
   zone: GateZone
-  signOut: () => Promise<void>
+  initializing: boolean
+  recovery: RecoveryStatus
+  callbackError: boolean
+  clearRecovery: () => void
+  refreshUser: () => Promise<void>
+  signOut: (scope?: 'global' | 'local') => Promise<void>
 }
 
 const AuthContext = createContext<AuthState | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const { session, loading: sessionLoading } = useSession()
+  const { session, loading: sessionLoading, recovery, callbackError } = useSession()
   const userId = session?.user?.id
   const { data: profile, isLoading: profileLoading } = useProfile(userId)
 
@@ -36,20 +43,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // still being fetched. Either way the guards show a loader (not /login).
   const loading = sessionLoading || (!!userId && profileLoading)
 
-  const signOut = useCallback(async () => {
-    await supabase.auth.signOut()
+  const signOut = useCallback(async (scope: 'global' | 'local' = 'global') => {
+    const { error } = await supabase.auth.signOut({ scope })
+    if (error) throw error
+    authState.clearRecovery()
     queryClient.clear() // drop cached profile so no stale gate state survives
   }, [])
+
+  const refreshUser = useCallback(async () => {
+    const { data, error } = await supabase.auth.getUser()
+    if (error) throw error
+    if (data.user) {
+      authState.setUser(data.user)
+      await queryClient.invalidateQueries({ queryKey: profileQueryKey(data.user.id) })
+    }
+  }, [])
+  useEffect(() => {
+    if (!userId || sessionLoading) return
+    const refresh = () => { void refreshUser().catch(() => { /* Forms report actionable session errors. */ }) }
+    refresh()
+    window.addEventListener('focus', refresh)
+    return () => window.removeEventListener('focus', refresh)
+  }, [userId, sessionLoading, refreshUser])
 
   const zone = resolveZone(!!session, profile)
 
   return (
     <AuthContext.Provider
-      value={{ loading, session, profile: profile ?? null, zone, signOut }}
+      value={{ loading, initializing: sessionLoading, recovery, callbackError: !!callbackError, clearRecovery: authState.clearRecovery,
+        session, profile: profile ?? null, zone, signOut, refreshUser }}
     >
-      {children}
+      <RecoveryBoundary>{children}</RecoveryBoundary>
     </AuthContext.Provider>
   )
+}
+
+// Includes legacy recovery links landing at /. It wraps ALL ordinary guards,
+// so no generic authenticated redirect can take precedence over recovery.
+export function RecoveryBoundary({ children }: { children: ReactNode }) {
+  const { initializing, recovery } = useAuth()
+  const location = useLocation()
+  if (initializing || recovery === 'processing') return <GateLoader />
+  if ((recovery === 'ready' || recovery === 'invalid') && location.pathname !== '/reset-password')
+    return <Navigate to="/reset-password" replace />
+  return <>{children}</>
 }
 
 export function useAuth(): AuthState {

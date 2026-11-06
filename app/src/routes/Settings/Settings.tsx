@@ -3,7 +3,7 @@
 // onboarding Step 2 — built once in Phase 5), and account/subscription. Renders
 // inside the AppShell.
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowUpCircle, ExternalLink, Loader2, RefreshCw, X } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
@@ -45,7 +45,10 @@ export default function Settings() {
   const [billingBusy, setBillingBusy] = useState(false)
   const [upgradeOpen, setUpgradeOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<SettingsTab>('crew')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requestedTab = searchParams.get('tab')
+  const activeTab = SETTINGS_TABS.some(tab => tab.value === requestedTab) ? requestedTab as SettingsTab : 'crew'
+  const setActiveTab = (tab: SettingsTab) => setSearchParams(params => { params.set('tab', tab); return params }, { replace: true })
   const [dismissingReconciliation, setDismissingReconciliation] = useState(false)
 
   // Reconciliation prompt (B4): after a tier upgrade, product_tier flips before

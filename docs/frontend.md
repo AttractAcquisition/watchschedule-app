@@ -3,6 +3,8 @@
 <!-- WatchSchedule spec set — v2 (cross-referenced & seam-verified). Document 2 of 6: frontend. Conforms to backend.md contracts. -->
 # frontend.md — WatchSchedule Frontend Architecture
 
+> Account security (6 November 2026): `/forgot-password` requests a neutral Supabase recovery email; `/reset-password` is a public auth route that waits for SDK initialization and verified `PASSWORD_RECOVERY` before showing recovery fields. Legacy root callbacks route there ahead of the ordinary gate. The implicit SDK flow alone consumes callback credentials. Settings Account shares password validation/forms, supports Supabase reauthentication, and uses Auth's current email (pending changes remain separate). Profile name and unique username remain in `profiles`, loaded and updated only by authenticated user ID. See [account-recovery.md](./account-recovery.md).
+
 > **Purpose.** Complete specification of the WatchSchedule client application: a React + TypeScript single-page application served as static files from GitHub Pages at `app.watchschedule.com`. This tells Claude Code exactly what to build on the client — stack, routing, the auth->payment->onboarding gate, every screen, state management, tier behaviour, and the contract with the Supabase backend. Pair with `backend.md` (server side), `branding.md` (visual system — LOCKED palette), `fairness.md` and `schedule.md` (the engines). Where this document and `backend.md` disagree on a payload shape, **`backend.md` wins**.
 
 ---

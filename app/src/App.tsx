@@ -11,6 +11,9 @@ import Onboarding from './routes/Onboarding/Onboarding'
 import AppShell from './components/layout/AppShell'
 import Dashboard from './routes/Dashboard/Dashboard'
 import Settings from './routes/Settings/Settings'
+import ForgotPassword from './routes/ForgotPassword'
+import ResetPassword from './routes/ResetPassword'
+import AccountConfirmation from './routes/AccountConfirmation'
 
 export default function App() {
   return (
@@ -19,6 +22,9 @@ export default function App() {
         <Routes>
           {/* Public auth screen; redirects onward if already authed. */}
           <Route path="/login" element={<Login />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/account-confirmation" element={<AccountConfirmation />} />
 
           {/* Authed + unpaid flow states. */}
           <Route element={<RequireZone zone="payment" />}>

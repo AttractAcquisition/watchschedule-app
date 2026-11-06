@@ -5,6 +5,8 @@
 <!-- WatchSchedule spec set — v2 (cross-referenced & seam-verified). Document 3 of 6: backend. AUTHORITATIVE for data contracts; on conflict this doc wins for behaviour. -->
 # backend.md — WatchSchedule Backend Architecture
 
+> Account security (6 November 2026): Supabase Auth exclusively owns login email and passwords. `profiles.email` is a server-maintained mirror of the confirmed Auth email; clients cannot change that mirror. A trigger syncs confirmed Auth email changes and a migration reconciles existing stale profile copies. Client profile editing cannot change account UUID or vessel membership. Names/usernames remain profile-owned; no name is inferred from an email address. Password recovery/update and email changes use supported Auth SDK APIs, preserving confirmation and reauthentication settings. See [account-recovery.md](./account-recovery.md).
+
 > **Purpose.** The authoritative server-side contract for WatchSchedule. Supabase is the **single source of truth**: Postgres (schema + RLS), Auth, Storage, and Edge Functions (Deno). Stripe is the payment processor; Claude powers the schedule chatbot and the OCR/classification assists. This document defines every table, policy, bucket, secret, and Edge Function — including exact request/response shapes the frontend (`frontend.md`) must conform to. The scheduling and fairness *algorithms* are specified in `schedule.md` and `fairness.md`; this document defines the *functions that run them* and the data they read/write.
 
 **Golden rules**

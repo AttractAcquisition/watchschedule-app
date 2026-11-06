@@ -13,6 +13,7 @@ import { supabase } from '../../lib/supabase'
 import { queryClient } from '../../lib/queryClient'
 import { useAuth } from '../../auth/AuthGate'
 import { profileQueryKey } from '../../auth/useProfile'
+import { usernamePattern, USERNAME_HELP } from '../../auth/accountValidation'
 import { classifyDepartment, DEPARTMENTS, type Department } from '../../lib/classifyDepartment'
 
 interface Row {
@@ -92,7 +93,7 @@ export default function StepCrew() {
     const cleanCaptainName = captainName.trim()
     const cleanUsername = username.trim().toLowerCase()
     if (!cleanCaptainName) return setError('Enter the captain name for this account.')
-    if (!/^[a-z0-9][a-z0-9_-]{2,31}$/.test(cleanUsername)) return setError('Username must be 3–32 lowercase letters, numbers, hyphens, or underscores.')
+    if (!usernamePattern.test(cleanUsername)) return setError(USERNAME_HELP)
     if (clean.length === 0) return setError('Add at least one crew member.')
     if (clean.some((r) => !r.full_name || !r.position)) return setError('Every crew member needs a name and a position.')
     if (!vesselId || !userId) return setError('Session not ready — please refresh.')
@@ -125,7 +126,7 @@ export default function StepCrew() {
           <input value={captainName} onChange={(e) => setCaptainName(e.target.value)} autoComplete="name" placeholder="Alex Morgan" className="mt-ws-1 w-full rounded-ws-sm border border-ws-line bg-ws-steel-3 px-ws-3 py-ws-2 text-ws-sm text-ws-text placeholder:text-ws-text-faint focus:border-ws-gold focus:outline-none" />
         </label>
         <label className="text-ws-xs text-ws-text-muted">Username
-          <input value={username} onChange={(e) => setUsername(e.target.value.toLowerCase())} autoComplete="username" spellCheck={false} placeholder="alex.morgan" className="mt-ws-1 w-full rounded-ws-sm border border-ws-line bg-ws-steel-3 px-ws-3 py-ws-2 text-ws-sm text-ws-text placeholder:text-ws-text-faint focus:border-ws-gold focus:outline-none" />
+          <input value={username} onChange={(e) => setUsername(e.target.value.toLowerCase())} autoComplete="username" spellCheck={false} placeholder="alex_morgan" className="mt-ws-1 w-full rounded-ws-sm border border-ws-line bg-ws-steel-3 px-ws-3 py-ws-2 text-ws-sm text-ws-text placeholder:text-ws-text-faint focus:border-ws-gold focus:outline-none" />
         </label>
       </div>
 

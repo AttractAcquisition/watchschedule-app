@@ -58,7 +58,7 @@ export default function TopBar() {
           </NavLink>
           <button
             type="button"
-            onClick={signOut}
+            onClick={() => { void signOut() }}
             className="flex items-center gap-ws-2 rounded-ws-sm px-ws-3 py-ws-2 text-ws-sm text-ws-text-muted transition-all hover:bg-ws-steel-2 hover:text-ws-text"
           >
             <LogOut className="h-4 w-4" strokeWidth={1.5} aria-hidden />
