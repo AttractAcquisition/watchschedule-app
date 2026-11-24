@@ -590,3 +590,64 @@ Deno.test('scarcity order never disturbs determinism', () => {
   assert.deepEqual(vessel().events, vessel().events)
   assert.deepEqual(vessel().ledger, vessel().ledger)
 })
+
+// ---------------------------------------------------------------------------
+// fairness.md Step B — Friday turn-taking is a COUNT, not a rate
+// ---------------------------------------------------------------------------
+
+Deno.test('Friday: whose turn it is outranks how big their denominator is', () => {
+  // Reproduces 25 December on the reported vessel. Everyone is level on one
+  // Friday, so the turn key ties and `cost` decides. Scoring the Friday as
+  // friday_watches/weekday_opportunities handed it to Greta — 2.0/36 beat
+  // Alexander's 2.0/18 — purely because she had served longest, while she was
+  // already the MOST worked person aboard. Burden has to decide that tie.
+  const person = (id: string, friday: number, weekday: number, opp: number) =>
+    ({ ...zeroEntry(id), friday_watches: friday, weekday_watches: weekday, total_watches: weekday, weekday_opportunities: opp, weekend_opportunities: 0 })
+  const base = {
+    greta: person('greta', 1, 9, 36),      // most opportunities AND most burden
+    elisa: person('elisa', 1, 9, 36),
+    jessica: person('jessica', 1, 6, 35),
+    silvio: person('silvio', 1, 6, 26),
+    alexander: person('alexander', 1, 2, 18), // fewest opportunities, least burden
+  }
+  // A single Friday to award.
+  const p = planGlobal({
+    crew: Object.keys(base).map(id => crew(id)), lanes: [lane('bridge')],
+    startDate: '2026-12-25', endDate: '2026-12-25',
+    settings: { ...settings, horizon_weeks: 1, include_weekends: false }, base,
+  })
+  const winner = p.assignments.find(a => a.watch_date === '2026-12-25')!.crew_id
+  assert.equal(winner, 'alexander', 'with turns level, the least-burdened takes the Friday')
+  assert.notEqual(winner, 'greta', 'never the biggest denominator')
+})
+
+Deno.test('Friday: nobody takes a second while anyone is a turn behind', () => {
+  // greta has had none; everyone else has had two. The turn key must put her
+  // first however much burden she is carrying elsewhere.
+  const person = (id: string, friday: number, weekday: number) =>
+    ({ ...zeroEntry(id), friday_watches: friday, weekday_watches: weekday, total_watches: weekday, weekday_opportunities: 30, weekend_opportunities: 0 })
+  const base = {
+    greta: person('greta', 0, 20),   // carrying the most, but a turn behind
+    elisa: person('elisa', 2, 2),
+    silvio: person('silvio', 2, 2),
+  }
+  const p = planGlobal({
+    crew: ['greta', 'elisa', 'silvio'].map(id => crew(id)), lanes: [lane('bridge')],
+    startDate: '2026-12-25', endDate: '2026-12-25',
+    settings: { ...settings, horizon_weeks: 1, include_weekends: false }, base,
+  })
+  assert.equal(p.assignments[0].crew_id, 'greta', 'the turn comes first')
+})
+
+Deno.test('Friday turn-taking changes nothing on other weekdays', () => {
+  // fridayTurn is zero on every non-Friday, so Mon-Thu selection is untouched.
+  const person = (id: string, friday: number, weekday: number) =>
+    ({ ...zeroEntry(id), friday_watches: friday, weekday_watches: weekday, total_watches: weekday, weekday_opportunities: 30, weekend_opportunities: 0 })
+  const base = { a: person('a', 0, 12), b: person('b', 5, 2) }
+  const p = planGlobal({
+    crew: ['a', 'b'].map(id => crew(id)), lanes: [lane('bridge')],
+    startDate: '2026-12-23', endDate: '2026-12-23',   // a Wednesday
+    settings: { ...settings, horizon_weeks: 1, include_weekends: false }, base,
+  })
+  assert.equal(p.assignments[0].crew_id, 'b', 'b carries far less weekday burden; Fridays are irrelevant here')
+})

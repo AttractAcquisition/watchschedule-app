@@ -146,16 +146,22 @@ cost = weekend_watches * W_WEEKEND
         # weekend rotation is balanced purely on weekend history, independent of weekday load
 ```
 
-> **24 November 2026 amendment — Friday is its OWN rotation.** The formula above adds `friday_term` *on top of* the candidate's whole weekday burden and divides the lot by `weekday_opportunities`. That makes Friday a sub-rotation scored on a **mixed** measure: whoever is lightest on weekdays generally wins the Friday even when they already hold one, so Fridays never cycle. The weekend has always been scored on `weekend_watches` **alone**, which is exactly why it *does* cycle — four weekends, four different people, every run. Friday is now symmetric with it:
+> **24 November 2026 amendment — Friday is a ROTA, so turn-taking is a COUNT.** The formula above adds `friday_term` *on top of* the candidate's whole weekday burden, which made Friday a sub-rotation scored on a **mixed** measure: whoever was lightest on weekdays generally won the Friday even holding one already, so Fridays never cycled. The weekend has always been scored on `weekend_watches` **alone**, which is why it *does* cycle.
+>
+> The first attempt at symmetry made the Friday cost `friday_watches * W_FRIDAY_SELECT / weekday_opportunities`. **That was wrong, and production showed it:** a rate divides by opportunities, so the longest-serving crew member earns extra Fridays simply for having the largest denominator. With six crew all level on one Friday, `2.0/36` beat `2.0/18` and the Friday went to the person who was **already the most-worked aboard**, because general weekday burden had been removed from the decision entirely.
+>
+> Turn-taking is a **count**, not a rate, and it belongs in the candidate comparator rather than the cost:
 >
 > ```
-> # on a Friday, and ONLY on a Friday:
-> cost = ( friday_watches * W_FRIDAY_SELECT + consec_penalty + recency_nudge ) / weekday_opportunities
+> compare = relaxed  ->  fridayTurn  ->  cost  ->  total  ->  scarce  ->  ...
+>            where fridayTurn = friday_watches on a Friday, and 0 on every other day
 > ```
 >
-> General weekday burden no longer enters the Friday decision at all; it returns as the **`total` tie-break** (section 7) between candidates holding the same number of Fridays. The measure stays a **rate**, so a part-time or newly joined crew member is not dealt Friday after Friday — one Friday over few opportunities is expensive, which is the C2 protection working as designed. Because the ledger persists, the turn order carries into the next generation: whoever missed a Friday this month is first in line next month, and the generation horizon stops mattering for Friday balance. Non-Friday weekdays are unchanged (`friday_term` was always zero for them).
+> So: **everyone stands one Friday before anyone stands a second**, and when turns are level `cost` decides — which is where "who is carrying least overall" comes back in, as it should. `selectionCost` scores a Friday exactly as it scores any weekday; `W_FRIDAY_SELECT` no longer enters selection (`W_FRIDAY = 1.5` still weights a stood Friday in `burden`).
 >
-> This is a deliberate trade. Rotation and weighted balance are **different objectives** and do not always agree: handing someone a second Friday can flatten the burden spread while a colleague has none. Where they conflict the rotation wins, because it is the fairness a crew actually experiences. `docs/rota-audit.md` enforces the same precedence when it looks for improvements.
+> The count is **cumulative**: a turn taken last month still counts this month, because the ledger persists. The generation horizon therefore stops mattering for Friday balance — whoever missed a Friday in December is first in line in January. A consequence worth stating plainly: **a window read in isolation can look uneven and be perfectly fair.** Eight Fridays across six crew is 2,2,1,1,1,1 and there is no other distribution; `docs/rota-audit.md` judges concentration cumulatively for exactly this reason.
+>
+> Rotation and weighted balance are **different objectives** and do not always agree: handing someone a second Friday can flatten the burden spread while a colleague is a turn behind. Where they conflict the rotation wins, because it is the fairness a crew actually experiences.
 
 Key point: **weekday decisions look at weekday/Friday counts; weekend decisions look at weekend counts.** That separation is the mechanism behind "Mon–Fri and Sat–Sun are their own schedules." Friday gets an *extra* selection penalty (`W_FRIDAY_SELECT`) so the same person doesn't keep drawing Friday even if their overall weekday count looks balanced.
 

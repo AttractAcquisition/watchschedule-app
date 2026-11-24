@@ -278,8 +278,8 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
     const pinnedOnFollowingMonday = (id: string) =>
       !!mondayAfterBlock && isoWeekday(mondayAfterBlock) === 1
       && scheduled(mondayAfterBlock) && isPinnedOn(id, mondayAfterBlock)
-    type Candidate = { id: string; relaxed: number; relaxedKind: 'monday' | 'friday' | 'week' | null; cost: number; total: number; scarce: number; last: string; consecutive: number }
-    const compare = (a: Candidate, b: Candidate) => a.relaxed - b.relaxed || a.cost - b.cost || a.total - b.total || a.scarce - b.scarce || cmp(a.last, b.last) || a.consecutive - b.consecutive || tieRank.get(a.id)! - tieRank.get(b.id)!
+    type Candidate = { id: string; relaxed: number; relaxedKind: 'monday' | 'friday' | 'week' | null; fridayTurn: number; cost: number; total: number; scarce: number; last: string; consecutive: number }
+    const compare = (a: Candidate, b: Candidate) => a.relaxed - b.relaxed || a.fridayTurn - b.fridayTurn || a.cost - b.cost || a.total - b.total || a.scarce - b.scarce || cmp(a.last, b.last) || a.consecutive - b.consecutive || tieRank.get(a.id)! - tieRank.get(b.id)!
     const rank = (id: string): Candidate => {
       const e = ledger[id] ?? zeroEntry(id)
       // At most one exclusion is ever in force: a Monday is never a weekend day.
@@ -293,7 +293,15 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
       // the stronger violation, and the one a captain recognises.
       const weekdayRepeat = secondWeekdayThisWeek(id)
       return {
-        id, relaxed: mondayAfterWeekend || fridayIntoWeekend || weekdayRepeat ? 1 : 0,
+        id,
+        // fairness.md Step B — Friday is a rota, so whose TURN it is comes
+        // before how much anyone is carrying. Everyone stands one before
+        // anyone stands a second; `cost` then decides between equal turns,
+        // which is where "who is carrying least overall" comes back in.
+        // Cumulative, so a turn taken last month still counts this month.
+        // Zero on every other day, so no other decision is affected.
+        fridayTurn: wd === 5 ? (ledger[id] ?? zeroEntry(id)).friday_watches : 0,
+        relaxed: mondayAfterWeekend || fridayIntoWeekend || weekdayRepeat ? 1 : 0,
         relaxedKind: mondayAfterWeekend ? 'monday' as const : fridayIntoWeekend ? 'friday' as const : weekdayRepeat ? 'week' as const : null,
         cost: days.reduce((sum, d) => sum + selectionCost(e, d, isoWeekday(d) >= 6 ? 'weekend' : 'weekday', isoWeekday(d) === 5), 0),
         total: e.total_watches, scarce: wd >= 6 ? e.weekend_watches : wd === 5 ? e.friday_watches : 0,
