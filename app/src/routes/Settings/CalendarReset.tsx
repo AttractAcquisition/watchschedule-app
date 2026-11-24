@@ -30,7 +30,13 @@ export function CalendarReset({ cleared, onChanged }: { cleared: boolean; onChan
       setNotice(action === 'clear_calendar'
         ? 'Calendar cleared. Every version is still under Schedule History, and Restore puts them back.'
         : 'Watches restored to the calendar.')
-      await queryClient.invalidateQueries({ queryKey: dashboardKey(profile?.vessel_id ?? undefined) })
+      // Everything that reads the marker, not just the dashboard — otherwise
+      // this panel keeps offering "Clear" until a hard refresh.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: dashboardKey(profile?.vessel_id ?? undefined) }),
+        queryClient.invalidateQueries({ queryKey: ['vessel_notices', profile?.vessel_id ?? undefined] }),
+        queryClient.invalidateQueries({ queryKey: ['schedule_history', profile?.vessel_id ?? undefined] }),
+      ])
       onChanged?.()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not change the calendar.')
