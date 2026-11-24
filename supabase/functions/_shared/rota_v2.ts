@@ -188,16 +188,42 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
   // Who stood which date in THIS run — carries the Friday-to-weekend exclusion
   // across the block loop; dates before the window come from the ledger instead.
   const stood = new Set<string>()
+  const structure = input.settings.weekend_structure ?? 'per_day'
+  // The Monday rule reads the weekend BEFORE it. Planning no longer runs in date
+  // order, so `last_weekend_date` on the live ledger may already have been moved
+  // forward by a weekend this run placed later in the week. The incoming value is
+  // the only dependable record of what happened before the window; inside it,
+  // `stood` is exact. Checked against both, never against the moving ledger.
+  const baseWeekend: Record<string, string | null> = {}
+  for (const [id, e] of Object.entries(input.base)) baseWeekend[id] = e.last_weekend_date
+  // docs/schedule.md §5 — within an ISO week days are decided by SCARCITY, not by
+  // date: the weekend block, then Friday, then Monday, then Tue/Wed/Thu. Filling
+  // Mon→Fri in order made rule 1c eat the pool and leave Friday as the residue,
+  // so the one watch W_FRIDAY_SELECT exists to spread was the one with no choice
+  // left. The scarce, heavily weighted days now pick from the whole pool and the
+  // unconstrained midweek fills around them. Under fri_sat_sun_block the Friday
+  // leads its own block, so it sorts with the weekend rather than after it.
+  const scarcity = (d: string) => {
+    const wd = isoWeekday(d)
+    if (wd >= 6) return 0
+    if (wd === 5) return structure === 'fri_sat_sun_block' ? 0 : 1
+    return wd === 1 ? 2 : 3
+  }
+  const orderedDates: string[] = []
+  for (let w = isoWeekKey(input.startDate); w <= end; w = addDays(w, 7)) {
+    orderedDates.push(...Array.from({ length: 7 }, (_, i) => addDays(w, i))
+      .filter(d => d >= input.startDate && d <= end)
+      .sort((a, b) => scarcity(a) - scarcity(b) || cmp(a, b)))
+  }
   // fairness.md rule 1c: at most one weekday watch per crew member per ISO
   // week. Keyed `crewId:weekMonday`. Seeded with the weeks already spoken for
   // OUTSIDE this window — history behind it, a retained tail ahead of it — so
   // a window that begins or ends midweek still spaces that partial week. Those
   // are rostered facts, exactly as a pin is; see docs/fixed-watches.md.
   const weekdayWeeks = new Set<string>(input.weekdayWeeks ?? [])
-  for (let date = input.startDate; date <= end; date = addDays(date, 1)) {
+  for (const date of orderedDates) {
     if (!scheduled(date) || covered.has(date)) continue
     const wd = isoWeekday(date)
-    const structure = input.settings.weekend_structure ?? 'per_day'
     const length = structure === 'fri_sat_sun_block' && wd === 5 ? 3 : structure !== 'per_day' && wd === 6 ? 2 : 1
     const days = Array.from({ length }, (_, i) => addDays(date, i)).filter(scheduled)
     const blockPools = pools.map(pool => pool.filter(id => days.every(d => available(id, d))))
@@ -236,8 +262,13 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
     // docs/fixed-watches.md is explicit that an inert pin is not a fact for
     // anyone else. Without this guard a dormant weekend pin would silently
     // reshuffle the Friday before it.
+    // Rule 1b used to be a pure lookback: the weekend was filled after its
+    // Friday, so it dropped whoever had just stood it. The weekend is now
+    // decided FIRST, so the same single constraint is evaluated from the other
+    // side — the Friday drops whoever already holds the weekend it leads into.
+    // A watch this run has placed is a fact in exactly the way a pin is.
     const pinnedIntoWeekend = (id: string) =>
-      weekendAfterFriday.some(d => scheduled(d) && isPinnedOn(id, d))
+      weekendAfterFriday.some(d => scheduled(d) && (isPinnedOn(id, d) || stood.has(id + ':' + d)))
     // A block can straddle the weekday/weekend line (fri_sat_sun_block leads
     // on a Friday), so the rule follows the DAYS, not the block's lead day.
     // Weekend days are neither checked nor counted: the two rotations are
@@ -252,7 +283,8 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
     const rank = (id: string): Candidate => {
       const e = ledger[id] ?? zeroEntry(id)
       // At most one exclusion is ever in force: a Monday is never a weekend day.
-      const mondayAfterWeekend = (wd === 1 && (e.last_weekend_date === addDays(date, -1) || e.last_weekend_date === addDays(date, -2)))
+      const priorWeekend = [addDays(date, -1), addDays(date, -2)]
+      const mondayAfterWeekend = (wd === 1 && priorWeekend.some(d => stood.has(id + ':' + d) || baseWeekend[id] === d))
         || pinnedOnFollowingMonday(id)
       const fridayIntoWeekend = stoodWeekendFriday(id) || pinnedIntoWeekend(id)
       // Rule 1c. It can coincide with the Friday rule on a Friday (never with
@@ -331,6 +363,25 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
   // a window would quietly erase its tail from everyone's burden. Replayed
   // AFTER planning: they are later than every day planned here, and they must
   // not steer the selection of days that precede them.
+  // Selection ran out of date order, so the ledger it leaves behind has
+  // `last_watch_date`, `last_weekend_date` and `consecutive_run` in the order
+  // days were DECIDED rather than the order they are STOOD. Volume counters are
+  // order-free and come out identical either way; these three are not, and they
+  // are both displayed and inherited as the next generation's base. Replaying
+  // the finished plan chronologically from the incoming ledger settles them.
+  // The cost of this is honest and small: during planning the consecutive-run
+  // penalty and the recency nudge (W_CONSEC 0.25, RECENCY_NUDGE 0.1 — tie
+  // shapers, not rules) see a partly-built week. Determinism is untouched.
+  // Days are now DECIDED out of order but must still be RETURNED in date order:
+  // callers, snapshots and tests have always been able to read this as a rota.
+  assignments.sort((x, y) => cmp(x.watch_date, y.watch_date) || cmp(x.lane_id, y.lane_id))
+  opportunities.sort((x, y) => cmp(x.watch_date, y.watch_date) || cmp(x.crew_id, y.crew_id))
+  events.sort((x, y) => cmp(x.watch_date, y.watch_date) || cmp(x.lane_id, y.lane_id))
+  const planned = replayGlobal(
+    Object.fromEntries(Object.entries(input.base).map(([id, e]) => [id, { ...e }])),
+    assignments, opportunities,
+  )
+  for (const id of Object.keys(ledger)) if (planned[id]) ledger[id] = planned[id]
   const retainedAssignments = input.retained?.assignments ?? []
   const retainedOpportunities = input.retained?.opportunities ?? []
   const scored = retainedAssignments.length || retainedOpportunities.length
