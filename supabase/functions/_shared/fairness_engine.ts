@@ -114,9 +114,22 @@ export function selectionCost(e: LedgerEntry, date: string, dayType: DayType, is
     const costOld = e.weekend_watches * W_WEEKEND + consec + recency
     return e.weekend_opportunities > 0 ? costOld / e.weekend_opportunities : Infinity
   }
+  // fairness.md Step B, 24 November 2026 — Friday is its OWN rotation.
+  // It used to be scored by adding a Friday penalty on top of the candidate's
+  // entire weekday load, so whoever was lightest on weekdays generally won the
+  // Friday even when they already had one, and Fridays never cycled. The
+  // weekend has always been scored on weekend history ALONE, which is exactly
+  // why it does cycle. Friday is now symmetric with it: Friday history decides,
+  // and general weekday burden only breaks ties between candidates holding the
+  // same number of Fridays (the `total` tie-break, fairness.md section 7).
+  // Still a RATE, so a part-time or newly joined crew member is not dealt
+  // Friday after Friday: one Friday over few opportunities is expensive.
+  if (isFriday) {
+    const costFriday = e.friday_watches * W_FRIDAY_SELECT + consec + recency
+    return e.weekday_opportunities > 0 ? costFriday / e.weekday_opportunities : Infinity
+  }
   const baseWeekday = (e.weekday_watches - e.friday_watches) * W_WEEKDAY + e.friday_watches * W_FRIDAY
-  const fridayTerm = isFriday ? e.friday_watches * W_FRIDAY_SELECT : 0
-  const costOld = baseWeekday + fridayTerm + consec + recency
+  const costOld = baseWeekday + consec + recency
   return e.weekday_opportunities > 0 ? costOld / e.weekday_opportunities : Infinity
 }
 

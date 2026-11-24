@@ -1,6 +1,7 @@
 import { handlePreflight, json } from '../_shared/cors.ts'
 import { rotaContext, loadRotaInputs, loadGlobalBase, validISODate } from '../_shared/rota_data.ts'
 import { generationEnd, generationWindow, planGlobal, validateLanes } from '../_shared/rota_v2.ts'
+import { auditRota } from '../_shared/rota_audit.ts'
 import { isoWeekday } from '../_shared/fairness_engine.ts'
 import { checkPins, enginePins, pinsNeedingConsent } from '../_shared/watch_pins.ts'
 
@@ -45,9 +46,17 @@ Deno.serve(async req => {
     if (pinsNeedingConsent(pins).length) return json(req, { requires_pin_consent: true, pins })
 
     const plan = planGlobal({ startDate: start, endDate, settings, crew: inputs.crew, lanes: inputs.lanes, base: base.ledger, leave: inputs.leave, charters: inputs.charters, pins: enginePins(pins), retained: base.retained, weekdayWeeks: base.weekdayWeeks })
+    // docs/rota-audit.md — every engine rule is local, so nothing until now
+    // asked whether the FINISHED month is defensible. Reports only; it never
+    // alters the plan it inspects.
+    const audit = auditRota({
+      assignments: plan.assignments, ledger: plan.ledger, crew: inputs.crew, lanes: inputs.lanes,
+      settings, leave: inputs.leave, weekdayWeeks: base.weekdayWeeks,
+      baseWeekend: Object.fromEntries(Object.entries(base.ledger).map(([id, e]) => [id, e.last_weekend_date])),
+    })
     const { data: scheduleId, error: publishError } = await admin.rpc('publish_rota', {
       p_vessel: vesselId, p_revision: revision,
-      p_plan: { ...plan, ledger: undefined, legacy_snapshots: base.legacySnapshots, snapshot: { lanes: inputs.lanes, opportunities: plan.opportunities, scheduled_dates: [...new Set(plan.events.map(e => e.watch_date))], weekend_structure: settings.weekend_structure ?? 'per_day', history_estimated: base.estimated }, history_estimated: base.estimated },
+      p_plan: { ...plan, ledger: undefined, legacy_snapshots: base.legacySnapshots, snapshot: { lanes: inputs.lanes, audit, opportunities: plan.opportunities, scheduled_dates: [...new Set(plan.events.map(e => e.watch_date))], weekend_structure: settings.weekend_structure ?? 'per_day', history_estimated: base.estimated }, history_estimated: base.estimated },
     })
     if (publishError) throw publishError
     return json(req, { schedule_id: scheduleId, start_date: plan.start_date, end_date: plan.end_date, assignments_count: plan.assignments.length, gaps: plan.gaps.length, fairness: plan.scores, engine_version: 2 })

@@ -146,6 +146,17 @@ cost = weekend_watches * W_WEEKEND
         # weekend rotation is balanced purely on weekend history, independent of weekday load
 ```
 
+> **24 November 2026 amendment — Friday is its OWN rotation.** The formula above adds `friday_term` *on top of* the candidate's whole weekday burden and divides the lot by `weekday_opportunities`. That makes Friday a sub-rotation scored on a **mixed** measure: whoever is lightest on weekdays generally wins the Friday even when they already hold one, so Fridays never cycle. The weekend has always been scored on `weekend_watches` **alone**, which is exactly why it *does* cycle — four weekends, four different people, every run. Friday is now symmetric with it:
+>
+> ```
+> # on a Friday, and ONLY on a Friday:
+> cost = ( friday_watches * W_FRIDAY_SELECT + consec_penalty + recency_nudge ) / weekday_opportunities
+> ```
+>
+> General weekday burden no longer enters the Friday decision at all; it returns as the **`total` tie-break** (section 7) between candidates holding the same number of Fridays. The measure stays a **rate**, so a part-time or newly joined crew member is not dealt Friday after Friday — one Friday over few opportunities is expensive, which is the C2 protection working as designed. Because the ledger persists, the turn order carries into the next generation: whoever missed a Friday this month is first in line next month, and the generation horizon stops mattering for Friday balance. Non-Friday weekdays are unchanged (`friday_term` was always zero for them).
+>
+> This is a deliberate trade. Rotation and weighted balance are **different objectives** and do not always agree: handing someone a second Friday can flatten the burden spread while a colleague has none. Where they conflict the rotation wins, because it is the fairness a crew actually experiences. `docs/rota-audit.md` enforces the same precedence when it looks for improvements.
+
 Key point: **weekday decisions look at weekday/Friday counts; weekend decisions look at weekend counts.** That separation is the mechanism behind "Mon–Fri and Sat–Sun are their own schedules." Friday gets an *extra* selection penalty (`W_FRIDAY_SELECT`) so the same person doesn't keep drawing Friday even if their overall weekday count looks balanced.
 
 > **C2 amendment — the cost is a RATE.** The ENTIRE count-based cost above is divided by the candidate's opportunities for that rotation (weekday cost ÷ `weekday_opportunities`, weekend cost ÷ `weekend_opportunities`). The **whole** cost is divided (not just the volume terms) so that with EQUAL availability the common divisor cancels and the ranking is byte-identical to pre-C2 (graceful degradation — verified: dividing only volume would flip picks via `consec`/`recency`). An opportunity = a scheduled watch-date of that rotation in the lane on/after the crew's `available_from`; it is counted for **every available crew on every scheduled date** (not just the one assigned), across seed + replay + the current run, so the denominator stays equal for equal-availability crew. Effect: a mid-season joiner reaches the lane's *rate* after ~their fair share of their own window, instead of being dumped on until their *count* catches longer-serving crew.
