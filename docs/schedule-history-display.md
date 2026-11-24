@@ -22,9 +22,13 @@ The dashboard reads the **canonical union of all schedule versions** — every `
 
 The winner rule is the engine's rule, verbatim:
 
-> the newest generation whose `start_date <= date`, and only if that generation also covers the date.
+> the newest generation that **actually covers** the date.
 
-Both clauses matter. The first is what preserves history: a regeneration always starts today or later, so for any past date the lookup skips every newer generation and lands on the one that actually covered it. The second preserves the documented behaviour that *a newer regeneration supersedes the older future, even if its horizon shrinks* — regenerate 24–28 November over a schedule that ran to the 30th and days 29–30 are owned by nobody, because the captain shrank the window. That rule was considered and deliberately left alone; reversing it would resurrect retired watches and shift fairness on every vessel, and it is not what the captain was reporting.
+A date no generation covers is owned by nobody.
+
+This preserves history for the obvious reason — a regeneration always starts today or later, so for any past date the lookup lands on the generation that actually covered it. It also means a **narrowed** window re-plans only the days inside it: regenerate 5–15 November over a 1–30 November schedule and 16–30 November keep the older plan.
+
+> **Superseded 24 November 2026.** This document first shipped preserving the older rule, *"a newer regeneration supersedes the older future, even if its horizon shrinks."* The captain asked for the tail to be retained instead, and `schedule.md` §7.2 now owns that contract — including folding the retained tail into the scores generation publishes, which the winner rule alone does not do.
 
 ### This is a seam
 

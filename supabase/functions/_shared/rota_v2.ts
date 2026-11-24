@@ -94,20 +94,43 @@ export function replayGlobal(seed: Ledger, assignments: PlannedAssignment[], opp
   return ledger
 }
 
-// A newer regeneration supersedes the older future, even if its horizon shrinks.
-export function canonicalHistory(versions: ScheduleVersion[], assignments: HistoricalAssignment[], opportunities: HistoricalOpportunity[], before: string) {
+// Which stored version owns a date: the newest generation that ACTUALLY COVERS
+// it (24 November 2026).
+//
+// This reverses the former "a newer regeneration supersedes the older future,
+// even if its horizon shrinks" rule, which stopped at the newest version
+// starting on or before the date and dropped the date entirely if that version
+// ended earlier. Regenerate 5-15 Nov over a 1-30 Nov schedule and 16-30 Nov
+// were silently retired: gone from the calendar, and uncounted by fairness even
+// though they stayed rostered and the crew still stood them.
+//
+// Narrowing a window now re-plans only the days inside it. Days the older
+// generation still covers keep its plan, stay visible, and keep counting. The
+// captain shortens a window to re-plan a stretch, not to delete the rest.
+//
+// SEAM: app/src/lib/canonicalRota.ts implements the same rule for the calendar.
+// Change one, change both, or the calendar and the scores will disagree.
+export function canonicalHistory(versions: ScheduleVersion[], assignments: HistoricalAssignment[], opportunities: HistoricalOpportunity[], before: string, after?: string) {
   const ordered = [...versions].sort((a, b) => cmp(b.generated_at, a.generated_at) || cmp(b.id, a.id))
   const cache = new Map<string, string | null>()
   const winner = (date: string) => {
     if (!cache.has(date)) {
-      const v = ordered.find(s => s.start_date <= date)
-      cache.set(date, v && date <= v.end_date ? v.id : null)
+      const v = ordered.find(s => s.start_date <= date && date <= s.end_date)
+      cache.set(date, v ? v.id : null)
     }
     return cache.get(date)
   }
+  const owns = (r: { watch_date: string; schedule_id: string }) => winner(r.watch_date) === r.schedule_id
+  // `after` is the end of the window a run is about to plan. Canonical days
+  // BEYOND it belong to an older generation that still covers them: retained,
+  // not re-planned. Generation folds them into the scores it publishes, so the
+  // ledger describes the whole rota rather than only the part just rebuilt.
+  const retained = (r: { watch_date: string; schedule_id: string }) => after !== undefined && r.watch_date > after && owns(r)
   return {
-    assignments: assignments.filter(a => a.watch_date < before && winner(a.watch_date) === a.schedule_id),
-    opportunities: opportunities.filter(o => o.watch_date < before && winner(o.watch_date) === o.schedule_id),
+    assignments: assignments.filter(a => a.watch_date < before && owns(a)),
+    opportunities: opportunities.filter(o => o.watch_date < before && owns(o)),
+    retainedAssignments: assignments.filter(retained),
+    retainedOpportunities: opportunities.filter(retained),
   }
 }
 
@@ -120,7 +143,7 @@ export function globalScores(ledger: Ledger, ids: string[]) {
   }))
 }
 
-export function planGlobal(input: { startDate: string; settings: ScheduleSettings; lanes: RotaLane[]; crew: Crew[]; base: Ledger; leave?: LeaveRange[]; charters?: CharterRange[]; endDate?: string | null; pins?: EnginePin[] }) {
+export function planGlobal(input: { startDate: string; settings: ScheduleSettings; lanes: RotaLane[]; crew: Crew[]; base: Ledger; leave?: LeaveRange[]; charters?: CharterRange[]; endDate?: string | null; pins?: EnginePin[]; retained?: { assignments: PlannedAssignment[]; opportunities: Opportunity[] } }) {
   const lanes = [...input.lanes].sort((a, b) => a.position - b.position || cmp(a.id, b.id))
   const ledger: Ledger = Object.fromEntries(Object.entries(input.base).map(([id, e]) => [id, { ...e }]))
   const end = generationEnd(input.startDate, input.settings.horizon_weeks, input.endDate)
@@ -243,5 +266,20 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
       })
     }
   }
-  return { start_date: input.startDate, end_date: end, horizon_weeks: horizon, assignments, opportunities, events, ledger, scores: globalScores(ledger, participants), gaps: events.filter(e => !e.crew_id) }
+  // Days an older generation still covers beyond this window are retained, not
+  // re-planned (see canonicalHistory). They are rostered, the crew will stand
+  // them, so they belong on the ledger this run publishes — otherwise shrinking
+  // a window would quietly erase its tail from everyone's burden. Replayed
+  // AFTER planning: they are later than every day planned here, and they must
+  // not steer the selection of days that precede them.
+  const retainedAssignments = input.retained?.assignments ?? []
+  const retainedOpportunities = input.retained?.opportunities ?? []
+  const scored = retainedAssignments.length || retainedOpportunities.length
+    ? replayGlobal(ledger, retainedAssignments, retainedOpportunities)
+    : ledger
+  // Someone may appear only in the retained tail — a lane they no longer belong
+  // to, or a watch stood under a since-retired configuration. They are still
+  // carrying it, so they are still scored.
+  const scoredParticipants = [...new Set([...participants, ...retainedAssignments.map(a => a.crew_id), ...retainedOpportunities.map(o => o.crew_id)])].sort(cmp)
+  return { start_date: input.startDate, end_date: end, horizon_weeks: horizon, assignments, opportunities, events, ledger: scored, scores: globalScores(scored, scoredParticipants), gaps: events.filter(e => !e.crew_id) }
 }

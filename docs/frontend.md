@@ -206,7 +206,9 @@ Regeneration **never deletes** the rota it replaces: `publish_rota` flips `is_cu
 
 So the dashboard reads the **canonical union of all schedule versions**, resolved by one winner per date, and not the current schedule alone. `useDashboardData` fetches every `schedules` row and every `watch_assignments` row for the vessel (paged past the row cap) and resolves them through `app/src/lib/canonicalRota.ts`.
 
-**The winner rule is the engine's rule, verbatim** — the newest generation whose `start_date <= date`, and only if that generation also covers the date (`supabase/functions/_shared/rota_v2.ts` → `canonicalHistory`). This is a **seam**: the two implementations must stay equivalent, or the calendar and the fairness scores will disagree about the same day. The second clause preserves the documented "a newer regeneration supersedes the older future, even if its horizon shrinks" rule. Dates in the past are unaffected by it, because a regeneration's start is always clamped to today or later (`generationWindow`) — which is precisely why history survives.
+**The winner rule is the engine's rule, verbatim** — the newest generation that **actually covers** the date (`supabase/functions/_shared/rota_v2.ts` → `canonicalHistory`). This is a **seam**: the two implementations must stay equivalent, or the calendar and the fairness scores will disagree about the same day. A date no generation covers is owned by nobody.
+
+Narrowing a window therefore re-plans only the days inside it: regenerate 5–15 November over a 1–30 November schedule and 16–30 November keep the older generation's plan, on the calendar and on the ledger alike (`schedule.md` §7.2).
 
 Three ways the previous, current-schedule-only read lost history, all fixed by this:
 

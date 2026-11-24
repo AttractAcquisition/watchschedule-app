@@ -36,10 +36,20 @@ describe('scheduleOwner — the server winner rule', () => {
     expect(owner('2026-11-26')).toBe('new')
   })
 
-  it('keeps the documented shrunken-window rule: the superseded future is owned by nobody', () => {
-    const owner = scheduleOwner([version('nov', '2026-11-01', '2026-11-30', '2026-10-28T10:00:00Z'), version('short', '2026-11-24', '2026-11-28', '2026-11-24T10:00:00Z')])
-    expect(owner('2026-11-29')).toBeNull()
-    expect(owner('2026-11-20')).toBe('nov')
+  // 24 Nov 2026: narrowing a window re-plans only the days inside it. The tail
+  // the older generation still covers is retained, not retired.
+  it('keeps the tail an older generation still covers when a window narrows', () => {
+    const owner = scheduleOwner([version('nov', '2026-11-01', '2026-11-30', '2026-10-28T10:00:00Z'), version('short', '2026-11-05', '2026-11-15', '2026-11-04T10:00:00Z')])
+    expect(owner('2026-11-04')).toBe('nov')
+    expect(owner('2026-11-10')).toBe('short')
+    expect(owner('2026-11-16')).toBe('nov')
+    expect(owner('2026-11-30')).toBe('nov')
+  })
+
+  it('owns a date by nobody only when no generation covers it at all', () => {
+    const owner = scheduleOwner([version('nov', '2026-11-01', '2026-11-30', '2026-10-28T10:00:00Z')])
+    expect(owner('2026-10-31')).toBeNull()
+    expect(owner('2026-12-01')).toBeNull()
   })
 
   it('breaks a same-timestamp tie on id, like the server', () => {
@@ -124,15 +134,32 @@ describe('resolveRota — history survives regeneration', () => {
     expect(resolved.scheduledDates).toEqual(['2026-11-01', '2026-11-02', '2026-11-03'])
   })
 
-  it('excludes a superseded version\'s dates from the scheduled set', () => {
+  it('keeps the whole month scheduled when a narrower window is generated inside it', () => {
     const versions = [
       version('nov', '2026-11-01', '2026-11-30', '2026-10-28T10:00:00Z'),
-      version('short', '2026-11-24', '2026-11-28', '2026-11-24T10:00:00Z'),
+      version('short', '2026-11-05', '2026-11-15', '2026-11-04T10:00:00Z'),
     ]
     const resolved = resolveRota({ versions, rows: [], lanes: LANES })
-    expect(resolved.scheduledDates).toContain('2026-11-23')
-    expect(resolved.scheduledDates).toContain('2026-11-28')
-    expect(resolved.scheduledDates).not.toContain('2026-11-29')
+    for (const d of ['2026-11-01', '2026-11-04', '2026-11-10', '2026-11-16', '2026-11-30']) {
+      expect(resolved.scheduledDates).toContain(d)
+    }
+  })
+
+  // The user's case: regenerate 5-15 Nov over 1-30 Nov. The tail must survive.
+  it('re-plans only the narrowed window and leaves the tail standing', () => {
+    const versions = [
+      version('nov', '2026-11-01', '2026-11-30', '2026-10-28T10:00:00Z'),
+      version('short', '2026-11-05', '2026-11-15', '2026-11-04T10:00:00Z'),
+    ]
+    const rows = [
+      row('nov', '2026-11-02', 'ana'), row('nov', '2026-11-10', 'superseded'),
+      row('short', '2026-11-10', 'ben'), row('nov', '2026-11-20', 'cal'), row('nov', '2026-11-28', 'dee'),
+    ]
+    const resolved = resolveRota({ versions, rows, lanes: LANES })
+    expect(crewOn(resolved, '2026-11-02')).toBe('ana')
+    expect(crewOn(resolved, '2026-11-10')).toBe('ben')
+    expect(crewOn(resolved, '2026-11-20')).toBe('cal')
+    expect(crewOn(resolved, '2026-11-28')).toBe('dee')
   })
 
   it('falls back to a legacy snapshot\'s own assignments for its scheduled days', () => {

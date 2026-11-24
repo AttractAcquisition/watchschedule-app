@@ -20,12 +20,15 @@ Deno.serve(async req => {
     if (!validISODate(start) || (endDate && !validISODate(endDate))) throw new Error('Invalid generation window')
     const inputs = await loadRotaInputs(admin, vesselId)
     validateLanes(inputs.lanes, tier)
-    const base = await loadGlobalBase(admin, vesselId, start, inputs)
+    // The window's end is needed BEFORE history loads: days an older generation
+    // still covers beyond it are retained rather than re-planned, and the run
+    // has to score them (docs/schedule.md §5.4).
+    const end = generationEnd(start, settings.horizon_weeks, endDate)
+    const base = await loadGlobalBase(admin, vesselId, start, inputs, undefined, end)
 
     // docs/fixed-watches.md — the captain's pins, evaluated against the window
     // this run will build. The neighbour rules see facts only: another pin, or
     // a watch stood before `start`. Days this run has yet to plan are not facts.
-    const end = generationEnd(start, settings.horizon_weeks, endDate)
     const scheduledDay = (d: string) =>
       !(isoWeekday(d) >= 6 && !settings.include_weekends) &&
       !inputs.charters.some(c => c.start <= d && d <= c.end)
@@ -41,7 +44,7 @@ Deno.serve(async req => {
     // Consent and refusal are answers, not transport failures.
     if (pinsNeedingConsent(pins).length) return json(req, { requires_pin_consent: true, pins })
 
-    const plan = planGlobal({ startDate: start, endDate, settings, crew: inputs.crew, lanes: inputs.lanes, base: base.ledger, leave: inputs.leave, charters: inputs.charters, pins: enginePins(pins) })
+    const plan = planGlobal({ startDate: start, endDate, settings, crew: inputs.crew, lanes: inputs.lanes, base: base.ledger, leave: inputs.leave, charters: inputs.charters, pins: enginePins(pins), retained: base.retained })
     const { data: scheduleId, error: publishError } = await admin.rpc('publish_rota', {
       p_vessel: vesselId, p_revision: revision,
       p_plan: { ...plan, ledger: undefined, legacy_snapshots: base.legacySnapshots, snapshot: { lanes: inputs.lanes, opportunities: plan.opportunities, scheduled_dates: [...new Set(plan.events.map(e => e.watch_date))], weekend_structure: settings.weekend_structure ?? 'per_day', history_estimated: base.estimated }, history_estimated: base.estimated },

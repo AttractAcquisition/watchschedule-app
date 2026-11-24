@@ -235,6 +235,38 @@ first rota is therefore fairness-aware from day one (heavier-seeded crew are fav
 
 ---
 
+### 7.2 A narrowed window re-plans only the days inside it (24 November 2026)
+
+A regeneration owns **its window**, not everything the generation before it happened to cover.
+
+Regenerate 5–15 November over a schedule that ran 1–30 November and the result is three spans, not one:
+
+| days | owner | what happens |
+|---|---|---|
+| 1–4 Nov | the older generation | history, before the window — unchanged, already counted |
+| 5–15 Nov | the new generation | re-planned |
+| 16–30 Nov | the older generation | **retained** — still rostered, still shown, still counted |
+
+This reverses the former rule, *"a newer regeneration supersedes the older future, even if its horizon shrinks."* Under it, `canonicalHistory` stopped at the newest version whose `start_date` fell on or before a date and dropped that date entirely when the version ended earlier — so 16–30 November vanished from the calendar and from fairness while the crew went on standing those watches. The captain narrows a window to re-plan a stretch, not to delete the rest of the month.
+
+**The owner of a date is now the newest generation that actually covers it.** A date no generation covers is owned by nobody, as before.
+
+#### The retained tail is scored
+
+Retaining the tail on the calendar is only half of it. `planGlobal` builds its ledger from history-before-start plus the window it just planned, so without more the retained days would be visible but weightless — and whoever stands them would look under-worked.
+
+So `canonicalHistory` reports the tail separately (`retainedAssignments` / `retainedOpportunities`, everything beyond the window's end that an older generation still owns), and `planGlobal` replays it into the ledger **after** planning, before scoring. After the 5–15 November example the published scores describe all of 1–30 November.
+
+Replay order matters and is deliberate: the tail is later than every day in the window, and it must not steer the selection of the days that precede it. It therefore affects the **scores**, never the **plan** — generation stays deterministic, and an empty tail leaves a run bit-for-bit identical to one with no tail argument at all. Someone appearing only in the tail (a lane they no longer belong to, a watch under a since-retired configuration) is still scored, on the same reasoning as a consented out-of-pool override.
+
+#### The trade this accepts
+
+The retained 16–30 November was planned against the 5–15 November assignments the regeneration has now replaced. Those days stay exactly as rostered, but they are no longer *balanced* against what actually happened. Fairness counts them, so the next regeneration corrects for it; the tail itself is not retro-fixed. Deleting rostered watches the crew have already been told about is the worse failure.
+
+#### Seam
+
+The calendar resolves the owner of a date with the same rule, in `app/src/lib/canonicalRota.ts`. The two must stay equivalent or the calendar and the fairness panel will describe different rotas for the same day. See `frontend.md` §4.5a.
+
 ## 8. Horizon & Dates
 
 - `horizon_weeks` is capped at **13 weeks (~3 months)** by the DB check constraint (`backend.md`) and the UI control (`frontend.md`). The engine trusts the stored value but should defensively clamp to [1,13].

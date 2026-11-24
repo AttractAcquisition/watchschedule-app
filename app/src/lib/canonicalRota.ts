@@ -15,14 +15,13 @@
 // Keep the two byte-for-byte equivalent. If one changes, change both, or the
 // calendar and the fairness scores will disagree about the same day.
 //
-//   "the newest generation whose start_date <= date, and only if that
-//    generation also covers the date"
+//   "the newest generation that ACTUALLY COVERS the date"
 //
-// The second clause is load-bearing: a newer regeneration supersedes the older
-// future even when its horizon shrinks, so a day past the newest window's end
-// is owned by nobody rather than falling back to a retired plan. Dates in the
-// PAST are never affected by that, because a regeneration's start is always
-// clamped to today or later — which is exactly why history survives here.
+// Narrowing a window re-plans only the days inside it (24 November 2026).
+// Regenerate 5-15 Nov over a 1-30 Nov schedule and 16-30 Nov keep the older
+// generation's plan: still rostered, still shown, still counted. They used to
+// be dropped silently by a rule that stopped at the newest version starting on
+// or before the date.
 
 const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 
@@ -63,8 +62,8 @@ export function scheduleOwner(versions: RotaVersion[]): (date: string) => string
   const cache = new Map<string, string | null>()
   return (date: string) => {
     if (!cache.has(date)) {
-      const v = ordered.find((s) => s.start_date <= date)
-      cache.set(date, v && date <= v.end_date ? v.id : null)
+      const v = ordered.find((s) => s.start_date <= date && date <= s.end_date)
+      cache.set(date, v ? v.id : null)
     }
     return cache.get(date)!
   }
