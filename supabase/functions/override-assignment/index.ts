@@ -10,7 +10,7 @@
 // fairness tables are written only here, via the service-role RPC; the fairness
 // numbers are the ordinary replay (rota_data + rota_v2), not a second formula.
 import { handlePreflight, json } from '../_shared/cors.ts'
-import { rotaContext, loadRotaInputs, loadGlobalBase, validISODate } from '../_shared/rota_data.ts'
+import { rotaContext, loadRotaInputs, loadGlobalBase, validISODate, visibleVersions } from '../_shared/rota_data.ts'
 import { canonicalHistory, globalScores, versionOwner, type HistoricalAssignment, type RotaLane, type ScheduleVersion } from '../_shared/rota_v2.ts'
 import { isoWeekday } from '../_shared/fairness_engine.ts'
 import { blockFor, checkOverride, resolveVersionLane, FAR_FUTURE, type OverrideCrew, type Violation } from '../_shared/manual_override.ts'
@@ -51,7 +51,9 @@ Deno.serve(async req => {
     ])
     if (se) throw se
     if (we) throw we
-    const allVersions = (scheduleRowsAll ?? []) as (ScheduleVersion & { rota_snapshot: unknown; is_current: boolean })[]
+    // Same rule as the import: a hidden generation owns nothing.
+    const allVersions = await visibleVersions(admin, vesselId,
+      (scheduleRowsAll ?? []) as (ScheduleVersion & { rota_snapshot: unknown; is_current: boolean })[])
     if (!allVersions.length) throw new Error('Generate a schedule before changing it.')
     const ownerId = versionOwner(allVersions)(watchDate)
     const schedule = allVersions.find(v => v.id === ownerId)

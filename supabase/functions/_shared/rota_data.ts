@@ -161,6 +161,24 @@ export async function loadGlobalBase(admin: Admin, vesselId: string, before: str
   return { ledger, estimated, legacySnapshots, stoodBefore, retained }
 }
 
+/**
+ * The generations the rota currently consists of.
+ *
+ * A calendar clear hides every generation at or before its marker: the replay
+ * skips them and the calendar does not draw them. Anything resolving which
+ * version OWNS a date has to skip them too, or it writes into a version nobody
+ * can see — an imported watch would vanish the moment it was recorded.
+ *
+ * A fairness reset is deliberately NOT a reason to hide a version: that reset
+ * keeps the rota on screen and only restarts the scores.
+ */
+export async function visibleVersions<T extends { generated_at: string }>(admin: Admin, vesselId: string, rows: T[]): Promise<T[]> {
+  const { data, error } = await admin.from('vessels').select('calendar_cleared_at').eq('id', vesselId).single()
+  if (error) throw error
+  const clearedAt = data.calendar_cleared_at as string | null
+  return clearedAt ? rows.filter(r => r.generated_at > clearedAt) : rows
+}
+
 export function validISODate(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value
 }

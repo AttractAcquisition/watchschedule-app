@@ -15,7 +15,7 @@
 // tables written only through the service-role RPC; the fairness numbers are
 // the ordinary replay (rota_data + rota_v2), never a second formula.
 import { handlePreflight, json } from '../_shared/cors.ts'
-import { rotaContext, loadRotaInputs, loadGlobalBase, validISODate } from '../_shared/rota_data.ts'
+import { rotaContext, loadRotaInputs, loadGlobalBase, validISODate, visibleVersions } from '../_shared/rota_data.ts'
 import { globalScores, versionOwner, type HistoricalAssignment, type ScheduleVersion, type RotaLane } from '../_shared/rota_v2.ts'
 import { isoWeekday } from '../_shared/fairness_engine.ts'
 import { contiguousRuns, parseHistoryCsv, resolveHistory, type RawHistoryRow } from '../_shared/history_import.ts'
@@ -92,7 +92,11 @@ Deno.serve(async req => {
     ])
     if (se) throw se
     if (ae) throw ae
-    const versions = (scheduleRows ?? []) as (ScheduleVersion & { rota_snapshot: { lanes?: RotaLane[]; scheduled_dates?: string[] } | null })[]
+    // Only versions the rota still consists of may own a date. After a calendar
+    // clear the hidden ones must not claim one, or the import would amend a
+    // generation nobody can see and the watch would vanish on arrival.
+    const versions = await visibleVersions(admin, vesselId,
+      (scheduleRows ?? []) as (ScheduleVersion & { rota_snapshot: { lanes?: RotaLane[]; scheduled_dates?: string[] } | null })[])
     const owner = versionOwner(versions as ScheduleVersion[])
 
     // The lane an imported watch is filed under. The captain picks one in the
