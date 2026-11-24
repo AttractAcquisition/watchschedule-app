@@ -112,10 +112,22 @@ export function WatchCalendar({
   const anchor = new Date()
 
   if (!data.schedule) {
+    // A cleared calendar is not an empty one: every watch is still stored, and
+    // saying "no schedule yet" would read as data loss (docs/calendar-restore.md).
     return (
       <section className="rounded-ws-md border border-ws-line bg-ws-steel p-ws-5 shadow-ws-md">
         <p className="ws-eyebrow">— Watch schedule</p>
-        <p className="mt-ws-3 text-ws-sm text-ws-text-muted">No schedule yet — generate one to see the rota.</p>
+        {data.calendarCleared ? (
+          <>
+            <p className="mt-ws-3 text-ws-sm text-ws-text">The calendar is cleared.</p>
+            <p className="mt-ws-2 text-ws-sm text-ws-text-muted">
+              Nothing was deleted — every generation is still under History, and
+              Settings → Account → Calendar puts them all back. Regenerate to start a fresh rota.
+            </p>
+          </>
+        ) : (
+          <p className="mt-ws-3 text-ws-sm text-ws-text-muted">No schedule yet — generate one to see the rota.</p>
+        )}
       </section>
     )
   }

@@ -47,6 +47,12 @@ export interface DashboardData {
   // schedule.md §5.1). Earlier dates are served by the superseded schedules that
   // still cover them, under the same per-date winner rule as canonicalHistory.
   plannedStart: string | null
+  /**
+   * The captain cleared the calendar (docs/calendar-restore.md). Every watch is
+   * hidden and nothing counts towards fairness, but nothing is deleted. The
+   * calendar says so rather than looking like a vessel that never generated.
+   */
+  calendarCleared: boolean
   /** True when a superseded generation still supplies days the calendar shows. */
   hasPriorRota: boolean
 }
@@ -87,12 +93,20 @@ export function useDashboardData(vesselId: string | undefined) {
         supabase.from('crew_leave').select('id,crew_member_id,start_date,end_date').eq('vessel_id', vesselId!).eq('status', 'booked'),
         supabase.from('watch_settings').select('updated_at').eq('vessel_id', vesselId!).maybeSingle(),
         supabase.from('vessel_fairness').select('crew_id,total_watches,weekday_watches,weekend_watches,friday_watches,last_watch_date,consecutive_run,fairness_score,balance,weekday_opportunities,weekend_opportunities,history_estimated').eq('vessel_id', vesselId!),
+        // The calendar-clear marker. The ENGINE honours this in its replay; the
+        // calendar has to honour it too, or a clear would empty the fairness
+        // panel while every watch stayed on screen.
+        supabase.from('vessels').select('calendar_cleared_at').eq('id', vesselId!).maybeSingle(),
       ])
 
       for (const result of inputs) if (result.error) throw result.error
-      const [{ data: schedules }, { data: crew }, { data: lanes }, { data: charters }, { data: leave }, { data: settings }, { data: ledger }] = inputs
+      const [{ data: schedules }, { data: crew }, { data: lanes }, { data: charters }, { data: leave }, { data: settings }, { data: ledger }, { data: vessel }] = inputs
 
-      const versions = (schedules ?? []) as (RotaVersion & { is_current: boolean })[]
+      // A fairness reset deliberately keeps the rota on screen, so only the
+      // calendar marker hides versions here.
+      const clearedAt = vessel?.calendar_cleared_at ?? null
+      const versions = ((schedules ?? []) as (RotaVersion & { is_current: boolean })[])
+        .filter((s) => !clearedAt || s.generated_at > clearedAt)
       const sched = versions.find((s) => s.is_current) ?? null
       const rows = sched ? await readAllAssignments(vesselId!) : []
 
@@ -118,6 +132,7 @@ export function useDashboardData(vesselId: string | undefined) {
         leave: (leave ?? []) as Leave[],
         settingsUpdatedAt: settings?.updated_at ?? null,
         plannedStart: sched && sched.start_date > today ? sched.start_date : null,
+        calendarCleared: !!clearedAt,
         hasPriorRota: !!sched && resolved.assignments.some((a) => a.watch_date < sched.start_date),
       }
     },

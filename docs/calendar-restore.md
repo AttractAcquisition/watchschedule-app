@@ -20,6 +20,10 @@ That shared timestamp is how a restore knows what to undo: it nulls `fairness_re
 
 `loadGlobalBase` takes the later of the two markers. Each only ever moves the cut-off forward.
 
+**The calendar honours `calendar_cleared_at` itself.** This is not optional and not implied by the engine change: the dashboard resolves the rota client-side from its own read of `schedules`, so a marker honoured only in `loadGlobalBase` empties the fairness panel while every watch stays on screen. `useDashboardData` filters versions to `generated_at > calendar_cleared_at` before resolving, and exposes `calendarCleared` so the calendar can say it is cleared rather than reading as a vessel that never generated. It does **not** filter on `fairness_reset_at`: that reset deliberately keeps the rota visible.
+
+This is the display seam again (CLAUDE.md §4): any rule the engine applies to which versions count must be applied to which versions show, or the two surfaces describe different rotas.
+
 ## Restoring a version copies it forward
 
 A restore does **not** flip `is_current` on the old row. The per-date winner rule ranks versions by `generated_at`, so an old row could only win its dates again by having its timestamp rewritten — which would falsify the audit trail and make Schedule History lie about when work was planned.
