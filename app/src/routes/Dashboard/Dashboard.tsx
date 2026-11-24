@@ -13,6 +13,7 @@ import { useDashboardData } from './useDashboardData'
 import { FairnessPanel } from './FairnessPanel'
 import { WatchCalendar } from './WatchCalendar'
 import { AssignmentEditor, type EditorTarget } from './AssignmentEditor'
+import { RecordPastWatch } from './RecordPastWatch'
 import { RegenerateButton } from './RegenerateButton'
 import { ImportHistoryButton } from './ImportHistoryButton'
 import { CopyWhatsAppButton } from './CopyWhatsAppButton'
@@ -143,7 +144,10 @@ export default function Dashboard() {
         onEdit={setEditing}
       />
 
-      {editing && (
+      {/* A day a generation planned is CHANGED, with the engine's rules and
+          consent gates. A past day nothing covers is RECORDED — there is no
+          plan to break, so it goes through the import path instead. */}
+      {editing && (data.scheduledDates.includes(editing.date) ? (
         <AssignmentEditor
           data={data}
           target={editing}
@@ -151,7 +155,15 @@ export default function Dashboard() {
           onClose={() => setEditing(null)}
           onApplied={() => setFairnessToast(true)}
         />
-      )}
+      ) : (
+        <RecordPastWatch
+          data={data}
+          target={editing}
+          vesselId={vesselId}
+          onClose={() => setEditing(null)}
+          onRecorded={() => setFairnessToast(true)}
+        />
+      ))}
 
       {fairnessToast && <Toast message="Fairness score has been updated" onDismiss={() => setFairnessToast(false)} />}
 

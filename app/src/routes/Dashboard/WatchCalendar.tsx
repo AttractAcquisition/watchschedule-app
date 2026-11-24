@@ -23,7 +23,7 @@ function charterFor(data: DashboardData, dateStr: string) {
   return data.charters.find((c) => dateStr >= c.start_date && dateStr <= c.end_date) ?? null
 }
 
-function Cell({ data, lane, date, scheduled, byKey, compact, dense, onEdit }: { data: DashboardData; lane: DashboardData['lanes'][number]; date: Date; scheduled: Set<string>; byKey: Map<string, DashboardData['assignments'][number]>; compact?: boolean; dense?: boolean; onEdit?: (target: EditorTarget) => void }) {
+function Cell({ data, lane, date, scheduled, byKey, todayISO, compact, dense, onEdit }: { data: DashboardData; lane: DashboardData['lanes'][number]; date: Date; scheduled: Set<string>; byKey: Map<string, DashboardData['assignments'][number]>; todayISO: string; compact?: boolean; dense?: boolean; onEdit?: (target: EditorTarget) => void }) {
   const laneId = lane.id
   const ds = fmt(date)
   const charter = charterFor(data, ds)
@@ -34,9 +34,14 @@ function Cell({ data, lane, date, scheduled, byKey, compact, dense, onEdit }: { 
   const weekend = isWeekend(date)
   // Any day a generation covers can be changed by hand (24 Nov 2026) — the
   // server edits whichever version owns it, so correcting who actually stood
-  // last week's watch is possible, not just this week's. A paused or
-  // never-scheduled day still has no watch to reassign.
-  const editable = !!onEdit && !charter && scheduled.has(ds)
+  // last week's watch is possible, not just this week's.
+  const planned = scheduled.has(ds)
+  // A PAST day no generation reaches is still clickable, to record who stood
+  // it (docs/history-import.md). Nothing was planned, so there is nothing to
+  // amend — it goes through the import path instead of the override's rules.
+  // Future days stay untouchable: the generator owns what is still to come.
+  const recordable = !planned && ds < todayISO
+  const editable = !!onEdit && !charter && (planned || recordable)
 
   const base = [
     dense ? 'min-h-5 px-1 py-px text-center' : compact ? 'min-h-[1.5rem] px-ws-1 py-ws-1 text-center' : 'min-h-[2.75rem] px-ws-2 py-ws-2',
@@ -53,7 +58,8 @@ function Cell({ data, lane, date, scheduled, byKey, compact, dense, onEdit }: { 
   const historical = !!data.schedule && ds < data.schedule.start_date
   const title = charter ? `${charter.label ? charter.label + ' — ' : ''}Charter · resumes ${resumes}`
     : crew ? `${crew.full_name} · ${crew.position}${manual}${editable ? (historical ? ' — click to correct this past watch' : ' — click to change') : ''}`
-    : isGap ? `No eligible crew — gap${editable ? ' — click to fill' : ''}` : ''
+    : isGap ? `No eligible crew — gap${editable ? ' — click to fill' : ''}`
+    : recordable && !!onEdit ? 'No schedule covers this day — click to record who stood it' : ''
   const content = (
     <>
       {charter ? (
@@ -199,7 +205,7 @@ export function WatchCalendar({
                   <div key={fmt(d)} className={`rounded-ws-sm ${inMonth ? '' : 'opacity-40'}`}>
                     <div className="px-ws-1 pt-ws-1 text-right font-mono text-ws-xs text-ws-text-faint">{format(d, 'd')}</div>
                     <div className="space-y-px p-ws-1">
-                      {lanes.map((lane) => <Cell key={lane.id} data={data} lane={lane} date={d} scheduled={scheduled} byKey={byKey} compact dense={denseMonth} onEdit={onEdit} />)}
+                      {lanes.map((lane) => <Cell key={lane.id} data={data} lane={lane} date={d} scheduled={scheduled} byKey={byKey} todayISO={today} compact dense={denseMonth} onEdit={onEdit} />)}
                     </div>
                   </div>
                 )
@@ -230,7 +236,7 @@ function Legend({ compact = false, editable = false }: { compact?: boolean; edit
       <span className="flex items-center gap-ws-2"><span className="font-mono text-ws-alert">⚠</span> Gap — no eligible crew</span>
       <span className="flex items-center gap-ws-2"><span className="font-mono italic text-ws-text-muted">Paused</span> Charter (rotation resumes after)</span>
       <span className="flex items-center gap-ws-2"><span className="font-mono text-ws-seagreen">🌙</span> On leave (per-crew; standing preserved)</span>
-      {editable && <span className="flex items-center gap-ws-2"><span className="inline-block h-3 w-3 rounded-ws-sm bg-ws-steel-2 ring-1 ring-inset ring-ws-gold-dim" /> Changed by hand — click any day to reassign</span>}
+      {editable && <span className="flex items-center gap-ws-2"><span className="inline-block h-3 w-3 rounded-ws-sm bg-ws-steel-2 ring-1 ring-inset ring-ws-gold-dim" /> Changed by hand — click any day to reassign, or a past day to record who stood it</span>}
     </div>
   )
 }
