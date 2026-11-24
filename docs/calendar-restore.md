@@ -53,3 +53,10 @@ A clear sends no scores at all, because there is nothing left to score; the RPC 
 Invariants unchanged: RLS is the access gate, the schedule and fairness tables are written only by server functions through service-role, and generation stays deterministic.
 
 Verification: `app/src/routes/Settings/CalendarReset.test.tsx` (clear is two-step and says nothing is deleted, cancelling changes nothing, restore needs no confirm, a server refusal is not reported as success).
+
+## A hidden generation owns nothing (24 November 2026)
+
+The clear marker has to be honoured by **everything that resolves which version owns a date**, not only by the replay and the calendar. `import-watch-history` and `override-assignment` both ranked versions straight from `schedules`, so with a cleared calendar they would resolve a date to a hidden generation and amend it — the watch would be written into a version nobody can see and vanish on arrival.
+
+`visibleVersions(admin, vesselId, rows)` in `_shared/rota_data.ts` is now the single place that answers "which generations does the rota consist of", and both functions go through it. A fairness reset is deliberately *not* a reason to hide a version: that reset keeps the rota on screen and only restarts the scores.
+
