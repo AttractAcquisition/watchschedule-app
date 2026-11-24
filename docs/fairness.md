@@ -157,7 +157,17 @@ cost = weekend_watches * W_WEEKEND
 >            where fridayTurn = friday_watches on a Friday, and 0 on every other day
 > ```
 >
-> So: **everyone stands one Friday before anyone stands a second**, and when turns are level `cost` decides — which is where "who is carrying least overall" comes back in, as it should. `selectionCost` scores a Friday exactly as it scores any weekday; `W_FRIDAY_SELECT` no longer enters selection (`W_FRIDAY = 1.5` still weights a stood Friday in `burden`).
+> A count alone is still not a rota. Production showed the second half within minutes: with every crew member level on one Friday — three earned in December, three carried from November — the count tied, `cost` decided, and the least-worked man aboard took the 18th **and** the 25th. Being owed a watch is not the same as being owed *this* Friday. A rota sends you to the **back of the queue** once you have stood your turn, so a second key follows the count:
+>
+> ```
+> compare = relaxed -> fridayTurn -> fridayQueue -> cost -> total -> scarce -> ...
+>            fridayQueue = the date of that crew member's last Friday, oldest first;
+>            never having stood one sorts ahead of every date. Empty on non-Fridays.
+> ```
+>
+> Derived from the stored assignments (no new ledger column) and carried forward as the run places each Friday.
+>
+> So: **everyone stands one Friday before anyone stands a second**, then whoever stood one longest ago, and when both are level `cost` decides — which is where "who is carrying least overall" comes back in, as it should. `selectionCost` scores a Friday exactly as it scores any weekday; `W_FRIDAY_SELECT` no longer enters selection (`W_FRIDAY = 1.5` still weights a stood Friday in `burden`).
 >
 > The count is **cumulative**: a turn taken last month still counts this month, because the ledger persists. The generation horizon therefore stops mattering for Friday balance — whoever missed a Friday in December is first in line in January. A consequence worth stating plainly: **a window read in isolation can look uneven and be perfectly fair.** Eight Fridays across six crew is 2,2,1,1,1,1 and there is no other distribution; `docs/rota-audit.md` judges concentration cumulatively for exactly this reason.
 >

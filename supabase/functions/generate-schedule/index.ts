@@ -45,7 +45,7 @@ Deno.serve(async req => {
     // Consent and refusal are answers, not transport failures.
     if (pinsNeedingConsent(pins).length) return json(req, { requires_pin_consent: true, pins })
 
-    const plan = planGlobal({ startDate: start, endDate, settings, crew: inputs.crew, lanes: inputs.lanes, base: base.ledger, leave: inputs.leave, charters: inputs.charters, pins: enginePins(pins), retained: base.retained, weekdayWeeks: base.weekdayWeeks })
+    const plan = planGlobal({ startDate: start, endDate, settings, crew: inputs.crew, lanes: inputs.lanes, base: base.ledger, leave: inputs.leave, charters: inputs.charters, pins: enginePins(pins), retained: base.retained, weekdayWeeks: base.weekdayWeeks, lastFriday: base.lastFriday })
     // docs/rota-audit.md — every engine rule is local, so nothing until now
     // asked whether the FINISHED month is defensible. Reports only; it never
     // alters the plan it inspects.
