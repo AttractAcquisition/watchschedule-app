@@ -222,6 +222,8 @@ For (3) a historical assignment is placed by **lane position** recorded in its o
 
 **Exports are not affected.** `scheduledDates()` stays scoped to the current schedule, because a WhatsApp paste or a printed rota is the rota in force, not the vessel's whole history.
 
+- **Upload past watches** (24 November 2026) — a control to the **left of Regenerate** opening a dialog with two routes: type watches in (a crew picker and a date per row) or upload a CSV with a downloadable template. The picker lists **every** crew member, eligible or not, so a departed colleague's watches can still be credited. The client holds no parsing or matching rules: it posts raw rows or raw CSV text to `import-watch-history` and renders what comes back, including unmatched names and per-line file errors. On success the dashboard query is invalidated and the fairness toast fires. See `history-import.md`.
+
 - **Unapplied-change banner.** Settings and crew edits only reach the schedule on generation, so the dashboard must say when the live schedule is behind the saved configuration. One gentle banner covers both sources, each detected by comparing a timestamp against `schedules.generated_at` for the current schedule:
   - **Crew** — the newest `crew_members.updated_at`; copy "Crew has changed since the last generation — regenerate to update the schedule."
   - **Watch configuration** — `watch_settings.updated_at` (every save through `save_watch_configuration` rewrites that row, so lane/department/horizon/weekend-structure changes are all covered); copy "Watch settings have changed since the last generation — …".

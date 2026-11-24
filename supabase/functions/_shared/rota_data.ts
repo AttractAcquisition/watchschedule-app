@@ -55,6 +55,14 @@ export async function loadRotaInputs(admin: Admin, vesselId: string) {
 export interface RotaPatch {
   assignments?: (rows: HistoricalAssignment[]) => HistoricalAssignment[]
   opportunities?: HistoricalOpportunity[]
+  /**
+   * Schedule versions that do not exist in the database yet. The per-date
+   * winner rule only keeps an assignment whose `schedule_id` owns its date, so
+   * rows bound for a version still being created would otherwise be dropped
+   * from the replay and the import would score as nothing. Used by
+   * import-watch-history to price a pending historical row before writing it.
+   */
+  versions?: (rows: ScheduleVersion[]) => ScheduleVersion[]
 }
 
 export async function loadGlobalBase(admin: Admin, vesselId: string, before: string, inputs: Awaited<ReturnType<typeof loadRotaInputs>>, patch?: RotaPatch, windowEnd?: string) {
@@ -67,8 +75,9 @@ export async function loadGlobalBase(admin: Admin, vesselId: string, before: str
   if (vesselResult.error) throw vesselResult.error
   const seed = seedResult.data
   const resetAt = vesselResult.data.fairness_reset_at as string | null
-  const versions = (scheduleRows as (ScheduleVersion & { rota_snapshot: { lanes?: RotaLane[]; opportunities?: Opportunity[]; history_estimated?: boolean } | null })[])
+  const stored = (scheduleRows as (ScheduleVersion & { rota_snapshot: { lanes?: RotaLane[]; opportunities?: Opportunity[]; history_estimated?: boolean } | null })[])
     .filter(s => !resetAt || s.generated_at > resetAt)
+  const versions = patch?.versions ? patch.versions(stored) as typeof stored : stored
   const assignments = patch?.assignments ? patch.assignments(assignmentRows as HistoricalAssignment[]) : assignmentRows as HistoricalAssignment[]
   const opportunities: HistoricalOpportunity[] = [...(patch?.opportunities ?? [])]
   const legacySnapshots: { id: string; snapshot: unknown }[] = []

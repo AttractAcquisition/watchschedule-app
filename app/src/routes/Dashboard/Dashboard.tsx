@@ -14,6 +14,7 @@ import { FairnessPanel } from './FairnessPanel'
 import { WatchCalendar } from './WatchCalendar'
 import { AssignmentEditor, type EditorTarget } from './AssignmentEditor'
 import { RegenerateButton } from './RegenerateButton'
+import { ImportHistoryButton } from './ImportHistoryButton'
 import { CopyWhatsAppButton } from './CopyWhatsAppButton'
 import { ScheduleHistoryButton } from './ScheduleHistory'
 import { ScheduleChat } from './ScheduleChat'
@@ -103,6 +104,7 @@ export default function Dashboard() {
           <h1 className="font-display text-ws-xl tracking-ws-tight text-ws-offwhite">Watch schedule</h1>
         </div>
         <div className="relative flex items-center gap-ws-2">
+          <ImportHistoryButton data={data} vesselId={vesselId} onImported={() => setFairnessToast(true)} />
           <RegenerateButton vesselId={vesselId} hasSchedule={!!data.schedule} />
           <div className="flex items-center overflow-hidden rounded-ws-sm border border-ws-line-strong bg-ws-navy-deep shadow-ws-sm">
             <ScheduleChat inline compact />
