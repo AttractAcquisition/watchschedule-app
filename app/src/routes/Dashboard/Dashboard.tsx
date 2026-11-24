@@ -19,7 +19,7 @@ import { ImportHistoryButton } from './ImportHistoryButton'
 import { CopyWhatsAppButton } from './CopyWhatsAppButton'
 import { ScheduleHistoryButton } from './ScheduleHistory'
 import { ScheduleChat } from './ScheduleChat'
-import { ScheduleExportButtons } from './ScheduleExportButtons'
+import { PrintScheduleDialog } from './PrintScheduleDialog'
 import { FairnessExportButtons } from './FairnessExportButtons'
 import { PrintLayer, usePrintWhenSet, type PrintTarget } from './PrintLayer'
 import { SchedulePrintDoc, FairnessPrintDoc } from './PrintDocuments'
@@ -43,6 +43,9 @@ export default function Dashboard() {
 
   // Browser-print export (PDF/Print) for the schedule + fairness surfaces.
   const [printTarget, setPrintTarget] = useState<PrintTarget>(null)
+  // Which span the schedule print-out covers. Null prints the current
+  // schedule, as before; the month picker sets it to that month.
+  const [printPeriod, setPrintPeriod] = useState<{ start: string; end: string } | null>(null)
   const [moreOpen, setMoreOpen] = useState(false)
   const [fairnessOpen, setFairnessOpen] = useState(false)
   // The cell the captain is reassigning by hand (docs/manual-override.md).
@@ -50,7 +53,7 @@ export default function Dashboard() {
   // Brief confirmation that the manual change's fairness recompute landed.
   const [fairnessToast, setFairnessToast] = useState(false)
   const [coverageDismissedLocally, setCoverageDismissedLocally] = useState(false)
-  const clearPrint = useCallback(() => setPrintTarget(null), [])
+  const clearPrint = useCallback(() => { setPrintTarget(null); setPrintPeriod(null) }, [])
   usePrintWhenSet(printTarget, clearPrint)
   // Stamps only the sources currently showing, so acknowledging a crew change
   // never hides a later settings change (or the reverse).
@@ -118,7 +121,7 @@ export default function Dashboard() {
             <div role="menu" className="absolute right-0 top-full z-30 mt-ws-2 flex w-56 flex-col gap-ws-1 rounded-ws-md border border-ws-line bg-ws-steel-2 p-ws-2 shadow-ws-lg">
               <ScheduleHistoryButton data={data} onRestored={() => setFairnessToast(true)} />
               <CopyWhatsAppButton data={data} />
-              <ScheduleExportButtons hasSchedule={!!data.schedule} onPrint={() => setPrintTarget('schedule')} />
+              <PrintScheduleDialog data={data} onPrint={(period) => { setPrintPeriod(period); setPrintTarget('schedule') }} />
             </div>
           )}
         </div>
@@ -197,7 +200,7 @@ export default function Dashboard() {
       {printTarget && (
         <PrintLayer>
           {printTarget === 'schedule'
-            ? <SchedulePrintDoc data={data} vesselName={vesselName} tier={tier} />
+            ? <SchedulePrintDoc data={data} vesselName={vesselName} tier={tier} period={printPeriod ?? undefined} />
             : <FairnessPrintDoc data={data} vesselName={vesselName} tier={tier} />}
         </PrintLayer>
       )}
