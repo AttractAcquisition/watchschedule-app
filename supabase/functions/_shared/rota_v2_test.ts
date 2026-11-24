@@ -78,14 +78,64 @@ Deno.test('global Monday rest follows a person after moving lanes; relax only fo
   assert.equal(needed.assignments.filter(a=>a.watch_date==='2026-09-21').length,2)
   assert.equal(needed.events.filter(e=>e.watch_date==='2026-09-21'&&e.reason_code==='constraint_relaxed_monday_exclusion').length,1)
 })
-Deno.test('canonical versions preserve old past and discard superseded future, including shorter horizons', () => {
+// 24 Nov 2026: narrowing a window re-plans only the days inside it. Days the
+// older generation still covers are RETAINED, not retired.
+Deno.test('canonical versions preserve the old past and the tail a narrowed window no longer covers', () => {
   const versions=[
     {id:'old',start_date:'2026-09-01',end_date:'2026-10-01',generated_at:'2026-09-01'},
     {id:'new',start_date:'2026-09-10',end_date:'2026-09-17',generated_at:'2026-09-10'},
   ]
   const asg=(schedule_id:string,watch_date:string) => ({schedule_id,watch_date,lane_id:'old-lane',crew_id:'a',day_type:'weekday' as const,is_friday:false})
   const p=canonicalHistory(versions,[asg('old','2026-09-05'),asg('old','2026-09-12'),asg('new','2026-09-12'),asg('old','2026-09-20')],[],'2026-09-22')
-  assert.deepEqual(p.assignments.map(a=>a.schedule_id+':'+a.watch_date),['old:2026-09-05','new:2026-09-12'])
+  assert.deepEqual(p.assignments.map(a=>a.schedule_id+':'+a.watch_date),['old:2026-09-05','new:2026-09-12','old:2026-09-20'])
+})
+
+Deno.test('a date no generation covers is owned by nobody', () => {
+  const versions=[{id:'only',start_date:'2026-09-01',end_date:'2026-09-30',generated_at:'2026-09-01'}]
+  const asg=(schedule_id:string,watch_date:string) => ({schedule_id,watch_date,lane_id:'l',crew_id:'a',day_type:'weekday' as const,is_friday:false})
+  const p=canonicalHistory(versions,[asg('only','2026-08-31'),asg('only','2026-09-15')],[],'2026-12-31')
+  assert.deepEqual(p.assignments.map(a=>a.watch_date),['2026-09-15'])
+})
+
+// The retained tail is reported separately so generation can score it: it is
+// rostered, but it is not being re-planned by this run.
+Deno.test('canonicalHistory separates the retained tail from the replanned window', () => {
+  const versions=[
+    {id:'nov',start_date:'2026-11-01',end_date:'2026-11-30',generated_at:'2026-10-28'},
+    {id:'narrow',start_date:'2026-11-05',end_date:'2026-11-15',generated_at:'2026-11-04'},
+  ]
+  const asg=(schedule_id:string,watch_date:string) => ({schedule_id,watch_date,lane_id:'l',crew_id:'a',day_type:'weekday' as const,is_friday:false})
+  const rows=[asg('nov','2026-11-02'),asg('nov','2026-11-10'),asg('narrow','2026-11-10'),asg('nov','2026-11-20'),asg('nov','2026-11-28')]
+  const p=canonicalHistory(versions,rows,[],'2026-11-05','2026-11-15')
+  // before the window: ordinary history
+  assert.deepEqual(p.assignments.map(a=>a.watch_date),['2026-11-02'])
+  // beyond the window: retained, still owned by the older generation
+  assert.deepEqual(p.retainedAssignments.map(a=>a.schedule_id+':'+a.watch_date),['nov:2026-11-20','nov:2026-11-28'])
+})
+
+Deno.test('generation scores the retained tail it did not replan', () => {
+  const people=[crew('a'),crew('b')]
+  const tail:PlannedAssignment[]=[{lane_id:'1',crew_id:'a',watch_date:'2026-11-20',day_type:'weekday',is_friday:false}]
+  const opportunities=[{crew_id:'a',watch_date:'2026-11-20'},{crew_id:'b',watch_date:'2026-11-20'}]
+  const without=run(people,[lane('1')])
+  const with_=run(people,[lane('1')],{retained:{assignments:tail,opportunities}})
+  const total=(p:{scores:{crew_id:string;total_watches:number}[]},id:string)=>p.scores.find(s=>s.crew_id===id)!.total_watches
+  assert.equal(total(with_,'a'),total(without,'a')+1)
+  assert.equal(total(with_,'b'),total(without,'b'))
+  // the tail is scored, never re-planned into this window's assignments
+  assert.equal(with_.assignments.filter(a=>a.watch_date==='2026-11-20').length,0)
+  assert.deepEqual(with_.assignments,without.assignments)
+})
+
+Deno.test('someone appearing only in the retained tail is still scored', () => {
+  const tail:PlannedAssignment[]=[{lane_id:'retired',crew_id:'ghost',watch_date:'2026-11-20',day_type:'weekday',is_friday:false}]
+  const p=run([crew('a')],[lane('1')],{retained:{assignments:tail,opportunities:[{crew_id:'ghost',watch_date:'2026-11-20'}]}})
+  assert.equal(p.scores.find(s=>s.crew_id==='ghost')!.total_watches,1)
+})
+
+Deno.test('an empty retained tail leaves generation bit-for-bit unchanged', () => {
+  const people=[crew('a'),crew('b'),crew('c')]
+  assert.deepEqual(run(people,[lane('1')],{retained:{assignments:[],opportunities:[]}}),run(people,[lane('1')]))
 })
 Deno.test('history replay deduplicates and preserves global balances after regrouping', () => {
   const a: PlannedAssignment={lane_id:'retired',crew_id:'a',watch_date:'2026-09-18',day_type:'weekday',is_friday:true}

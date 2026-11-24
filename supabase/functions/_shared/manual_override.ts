@@ -170,3 +170,24 @@ export function checkOverride(input: OverrideCheck): { violations: Violation[]; 
 
   return { violations, blockers }
 }
+
+/**
+ * Which lane of a given schedule version a request means.
+ *
+ * The browser names a lane from the calendar's CURRENT rows, but a schedule
+ * generated before a lane reconfiguration carries different lane ids —
+ * `save_watch_configuration` mints a new uuid when a lane is added and
+ * deactivates removed ones. Match on id first; otherwise fall back to the lane
+ * holding the same POSITION in that version's own snapshot, which is how the
+ * calendar displays it. Returns null when that version has no such lane, so a
+ * watch is never written to the wrong one.
+ */
+export function resolveVersionLane<T extends { id: string; position: number }>(
+  versionLanes: T[], currentLanes: { id: string; position: number }[], laneId: string,
+): T | null {
+  const exact = versionLanes.find(l => l.id === laneId)
+  if (exact) return exact
+  const position = currentLanes.find(l => l.id === laneId)?.position
+  if (position === undefined) return null
+  return versionLanes.find(l => l.position === position) ?? null
+}

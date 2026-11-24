@@ -48,7 +48,11 @@ export function ScheduleHistoryButton({ data }: { data: DashboardData }) {
   const histData: DashboardData | null = useMemo(() => {
     if (!selected || !histAssignments) return null
     const lanes = scheduleLanes(selected.rota_snapshot, allLanes ?? [], histAssignments)
-    return { schedule: { id: selected.id, start_date: selected.start_date, end_date: selected.end_date, horizon_weeks: selected.horizon_weeks, generated_at: selected.generated_at }, assignments: histAssignments, ledger: [], crew: data.crew, lanes, crewById: data.crewById, charters: [], leave: [], settingsUpdatedAt: null, plannedStart: null, interimScheduledDates: [] }
+    // This version's OWN rostered days — a historical view shows one version in
+    // isolation, never the canonical union the live calendar resolves.
+    const snapshot = selected.rota_snapshot as { scheduled_dates?: string[] } | null
+    const histScheduledDates = [...new Set(snapshot?.scheduled_dates ?? histAssignments.map((a) => a.watch_date))].sort()
+    return { schedule: { id: selected.id, start_date: selected.start_date, end_date: selected.end_date, horizon_weeks: selected.horizon_weeks, generated_at: selected.generated_at }, assignments: histAssignments, ledger: [], crew: data.crew, lanes, crewById: data.crewById, charters: [], leave: [], settingsUpdatedAt: null, plannedStart: null, hasPriorRota: false, scheduledDates: histScheduledDates }
   }, [selected, histAssignments, allLanes, data.crew, data.crewById])
 
   return (

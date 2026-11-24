@@ -6,7 +6,7 @@ This contract reverses the "manual per-day schedule editing" exclusion in `addit
 
 On the dashboard calendar the captain clicks the person standing a given lane's watch and changes them to someone else — or to nobody. The schedule is **not** re-planned: the generator owns generation, the captain owns that one cell. Every other day stays exactly as generated. Fairness **is** recomputed immediately, by the ordinary ledger replay over the amended assignments, so the scores always describe the rota the crew actually work.
 
-A regeneration replaces its whole window, so manual changes inside it are overwritten — intended, and stated in the UI. Manual changes on dates **before** a regeneration's start survive as history and keep counting towards fairness, under the same per-date winner rule as every other superseded schedule.
+A regeneration replaces its whole window, so manual changes inside it are overwritten — intended, and stated in the UI. Manual changes on dates **before** a regeneration's start survive as history and keep counting towards fairness, under the same per-date winner rule as every other superseded schedule — and, as of 24 November 2026, they stay **visible** on the calendar too, with their hand-changed ring intact (`frontend.md` §4.5a). Until then the dashboard read only the current schedule, so a regeneration hid every earlier override even though the ledger still counted it.
 
 ## Rules, consent and refusal
 
@@ -22,7 +22,17 @@ The engine's hard exclusions remain hard: the captain may break one only by ackn
 | `consecutive_weekends` | caution | the weekend either side is theirs as well — priced by the engine, not forbidden by it. |
 | `long_consecutive_run` | caution | four or more scheduled days in a row. |
 
-One thing is **refused outright and cannot be consented away**: `already_on_watch` — one person, one watch a day, the invariant `publish_rota` enforces for generated rotas and `apply_manual_override` re-checks after writing. Days outside the current schedule, days it never scheduled, and charter-paused days are not editable at all.
+One thing is **refused outright and cannot be consented away**: `already_on_watch` — one person, one watch a day, the invariant `publish_rota` enforces for generated rotas and `apply_manual_override` re-checks after writing. Days no generation ever scheduled, and charter-paused days, are not editable at all.
+
+### Any day a generation covers, not just the current one (24 November 2026)
+
+The editor originally refused every day outside the **current** schedule. That was too narrow: once a new window is generated, the days before it are still owned by a perfectly good superseded generation, they still count towards fairness, and the captain may well need to correct who actually stood one of them. On a vessel whose current schedule starts mid-month, the first half of that month was uneditable despite being fully rostered.
+
+The day is now edited on **the generation that owns it**, resolved by the same per-date winner rule as the fairness replay (`_shared/rota_v2.ts` → `versionOwner`, extracted so the override and the replay cannot diverge). The guard moved rather than disappeared: migration `20261124010000` drops the `is_current` requirement from `apply_manual_override` and checks instead that the days fall inside the range of the schedule being amended, and that the schedule belongs to the vessel.
+
+A schedule generated before a lane reconfiguration carries lane ids the live rota no longer has, because `save_watch_configuration` mints a new uuid when a lane is added. The browser names a lane from the calendar's current rows, so the server maps it onto that version's own lane by **position** when the id does not match (`resolveVersionLane`, pure and unit-tested). A lane the version never had resolves to nothing and the edit is refused, rather than landing on the wrong lane.
+
+A day **no** generation covers still cannot be edited here — there is no version to amend. Those are the business of "Upload past watches".
 
 A weekend block has one watchkeeper by construction, so a change to any of its days moves **all** of them. The block is derived exactly as `planGlobal` derives it, from the structure recorded in that schedule's own snapshot (`rota_snapshot.weekend_structure`) — never from today's settings, which may have moved on.
 
@@ -34,17 +44,19 @@ The crew member taking a watch gains the **opportunity** for those days, appende
 
 Tests prove the property this rests on: replaying a published rota reproduces the generator's ledger byte-for-byte, so a recompute with nothing amended cannot drift from what generation wrote.
 
+**The recompute is now visible (24 November 2026).** It always happened, in the same transaction as the change, but nothing on screen said so — which left the captain unsure whether the scores had moved and asking for a "regenerate fairness score" button. There is no such button, and deliberately so: a button implying fairness might be stale would misdescribe the system. Instead, a successful apply raises a brief confirmation — bottom-right, ~3 seconds, `components/ui/Toast.tsx` — reading **"Fairness score has been updated"**. `AssignmentEditor` reports the apply through an `onApplied` callback; `Dashboard` owns the toast. No new endpoint, no new table, no change to when fairness is computed.
+
 ## Seams
 
 - **Edge Function `override-assignment`** (the 9th; `supabase/functions/override-assignment/`). Two modes on one contract, so the browser holds no copy of the rules:
-  - `{ watch_date, lane_id }` → `{ days, current_crew_id, options: [{ crew_id, full_name, in_lane, violations, blockers }] }`
+  - `{ watch_date, lane_id }` → `{ days, current_crew_id, options: [{ crew_id, full_name, in_lane, violations, blockers }] }`, resolved against the generation owning `watch_date`
   - `{ watch_date, lane_id, crew_id | null, acknowledge }` → `{ applied, fairness }`, or `{ requires_consent, violations }`, or `{ blocked, blockers }` — all **200**: consent and refusal are answers, not transport failures.
   Re-derives `vessel_id` from the JWT like every other function; requires an active subscription.
 - **`_shared/manual_override.ts`** — pure predicates: `blockFor` (which days move together) and `checkOverride` (what a selection breaks). No I/O, no writes.
 - **`_shared/rota_data.ts`** — `loadGlobalBase` takes an optional `RotaPatch`, an amendment replayed as if already saved, so a change can be scored before it is persisted.
 - **RPC `apply_manual_override(p_vessel, p_revision, p_plan)`** — service-role only, migration `20261026030000`. Rewrites the block's assignments, re-checks the one-watch-a-day invariant, appends the opportunities, logs a `manual_override` row in `fairness_events`, rewrites `vessel_fairness`, and bumps `rota_revision` — all in one transaction behind the same revision check `publish_rota` uses, so an in-flight generation fails safely rather than publishing over the change.
 - **`watch_assignments.is_manual`** — which rows the captain set by hand. Generation writes `false`, so a regenerate clears the flag with the overrides.
-- **Client** — `AssignmentEditor.tsx` (the picker and the per-rule consent checkboxes) and `WatchCalendar.tsx` (editable cells, a gold inset ring on hand-changed days). The client computes no rules and writes no rota table; it calls the function and invalidates the dashboard query.
+- **Client** — `AssignmentEditor.tsx` (the picker and the per-rule consent checkboxes) and `WatchCalendar.tsx` (editable cells, a gold inset ring on hand-changed days). The client computes no rules and writes no rota table; it calls the function and invalidates the dashboard query, then raises the fairness confirmation toast.
 
 Invariants unchanged: Supabase is the single source of truth, RLS is the access gate, the schedule and fairness tables are written only by server functions through service-role, secrets stay in Edge Functions, and generation stays deterministic — an override is an input to the next replay, never a source of randomness in it.
 

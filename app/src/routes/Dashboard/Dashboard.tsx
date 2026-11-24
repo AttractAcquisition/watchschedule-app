@@ -14,6 +14,7 @@ import { FairnessPanel } from './FairnessPanel'
 import { WatchCalendar } from './WatchCalendar'
 import { AssignmentEditor, type EditorTarget } from './AssignmentEditor'
 import { RegenerateButton } from './RegenerateButton'
+import { ImportHistoryButton } from './ImportHistoryButton'
 import { CopyWhatsAppButton } from './CopyWhatsAppButton'
 import { ScheduleHistoryButton } from './ScheduleHistory'
 import { ScheduleChat } from './ScheduleChat'
@@ -21,6 +22,7 @@ import { ScheduleExportButtons } from './ScheduleExportButtons'
 import { FairnessExportButtons } from './FairnessExportButtons'
 import { PrintLayer, usePrintWhenSet, type PrintTarget } from './PrintLayer'
 import { SchedulePrintDoc, FairnessPrintDoc } from './PrintDocuments'
+import { Toast } from '../../components/ui/Toast'
 
 export default function Dashboard() {
   const { profile } = useAuth()
@@ -44,6 +46,8 @@ export default function Dashboard() {
   const [fairnessOpen, setFairnessOpen] = useState(false)
   // The cell the captain is reassigning by hand (docs/manual-override.md).
   const [editing, setEditing] = useState<EditorTarget | null>(null)
+  // Brief confirmation that the manual change's fairness recompute landed.
+  const [fairnessToast, setFairnessToast] = useState(false)
   const [coverageDismissedLocally, setCoverageDismissedLocally] = useState(false)
   const clearPrint = useCallback(() => setPrintTarget(null), [])
   usePrintWhenSet(printTarget, clearPrint)
@@ -100,6 +104,7 @@ export default function Dashboard() {
           <h1 className="font-display text-ws-xl tracking-ws-tight text-ws-offwhite">Watch schedule</h1>
         </div>
         <div className="relative flex items-center gap-ws-2">
+          <ImportHistoryButton data={data} vesselId={vesselId} onImported={() => setFairnessToast(true)} />
           <RegenerateButton vesselId={vesselId} hasSchedule={!!data.schedule} />
           <div className="flex items-center overflow-hidden rounded-ws-sm border border-ws-line-strong bg-ws-navy-deep shadow-ws-sm">
             <ScheduleChat inline compact />
@@ -138,7 +143,17 @@ export default function Dashboard() {
         onEdit={setEditing}
       />
 
-      {editing && <AssignmentEditor data={data} target={editing} vesselId={vesselId} onClose={() => setEditing(null)} />}
+      {editing && (
+        <AssignmentEditor
+          data={data}
+          target={editing}
+          vesselId={vesselId}
+          onClose={() => setEditing(null)}
+          onApplied={() => setFairnessToast(true)}
+        />
+      )}
+
+      {fairnessToast && <Toast message="Fairness score has been updated" onDismiss={() => setFairnessToast(false)} />}
 
       <section className="flex flex-wrap items-center justify-between gap-ws-4 rounded-ws-md border border-ws-line bg-ws-steel p-ws-5 shadow-ws-md">
         <div>

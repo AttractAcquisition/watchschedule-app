@@ -23,21 +23,20 @@ function charterFor(data: DashboardData, dateStr: string) {
   return data.charters.find((c) => dateStr >= c.start_date && dateStr <= c.end_date) ?? null
 }
 
-function Cell({ data, lane, date, scheduled, compact, dense, onEdit }: { data: DashboardData; lane: DashboardData['lanes'][number]; date: Date; scheduled: Set<string>; compact?: boolean; dense?: boolean; onEdit?: (target: EditorTarget) => void }) {
+function Cell({ data, lane, date, scheduled, byKey, compact, dense, onEdit }: { data: DashboardData; lane: DashboardData['lanes'][number]; date: Date; scheduled: Set<string>; byKey: Map<string, DashboardData['assignments'][number]>; compact?: boolean; dense?: boolean; onEdit?: (target: EditorTarget) => void }) {
   const laneId = lane.id
   const ds = fmt(date)
   const charter = charterFor(data, ds)
-  const key = `${laneId}:${ds}`
-  const a = data.assignments.find((x) => `${x.lane_id}:${x.watch_date}` === key)
+  const a = byKey.get(`${laneId}:${ds}`)
   const crew = a ? data.crewById.get(a.crew_id) : undefined
   const isGap = !charter && !a && scheduled.has(ds) // scheduled date, no assignment -> no_eligible_crew gap
   const friday = isFriday(date)
   const weekend = isWeekend(date)
-  // Only the current schedule's own days can be changed by hand: days before a
-  // planned-ahead start are served by the superseded rota, and a paused or
-  // unscheduled day has no watch to reassign.
+  // Any day a generation covers can be changed by hand (24 Nov 2026) — the
+  // server edits whichever version owns it, so correcting who actually stood
+  // last week's watch is possible, not just this week's. A paused or
+  // never-scheduled day still has no watch to reassign.
   const editable = !!onEdit && !charter && scheduled.has(ds)
-    && !!data.schedule && ds >= data.schedule.start_date && ds <= data.schedule.end_date
 
   const base = [
     dense ? 'min-h-5 px-1 py-px text-center' : compact ? 'min-h-[1.5rem] px-ws-1 py-ws-1 text-center' : 'min-h-[2.75rem] px-ws-2 py-ws-2',
@@ -51,8 +50,9 @@ function Cell({ data, lane, date, scheduled, compact, dense, onEdit }: { data: D
 
   const resumes = charter ? format(addDays(parseISO(charter.end_date), 1), 'd MMM') : ''
   const manual = a?.is_manual ? ' · changed by hand' : ''
+  const historical = !!data.schedule && ds < data.schedule.start_date
   const title = charter ? `${charter.label ? charter.label + ' — ' : ''}Charter · resumes ${resumes}`
-    : crew ? `${crew.full_name} · ${crew.position}${manual}${editable ? ' — click to change' : ''}`
+    : crew ? `${crew.full_name} · ${crew.position}${manual}${editable ? (historical ? ' — click to correct this past watch' : ' — click to change') : ''}`
     : isGap ? `No eligible crew — gap${editable ? ' — click to fill' : ''}` : ''
   const content = (
     <>
@@ -94,10 +94,16 @@ export function WatchCalendar({
 }) {
   const [offset, setOffset] = useState(0)
 
-  const scheduled = useMemo(() => {
-    const snapshot = data.schedule?.rota_snapshot as { scheduled_dates?: string[] } | null
-    return new Set([...(snapshot?.scheduled_dates ?? data.assignments.map(a => a.watch_date)), ...data.interimScheduledDates])
-  }, [data.assignments, data.schedule, data.interimScheduledDates])
+  // Every date any surviving generation rostered, history included — resolved
+  // in useDashboardData under the server's per-date winner rule.
+  const byKey = useMemo(
+    () => new Map(data.assignments.map((a) => [`${a.lane_id}:${a.watch_date}`, a])),
+    [data.assignments],
+  )
+  const scheduled = useMemo(
+    () => new Set(data.scheduledDates.length ? data.scheduledDates : data.assignments.map(a => a.watch_date)),
+    [data.assignments, data.scheduledDates],
+  )
   const lanes = data.lanes
 
   // The Today control must always show the real current week/month. An expired
@@ -125,7 +131,7 @@ export function WatchCalendar({
     || (coverageWarningDismissedAt && data.schedule.generated_at <= coverageWarningDismissedAt)
     ? null
     : notStarted
-      ? `Watch schedule starts ${format(parseISO(data.schedule.start_date), 'd MMM yyyy')} — ${daysAway} ${daysAway === 1 ? 'day' : 'days'} away.${data.interimScheduledDates.length ? ' Days before then show your previous rota.' : ''}`
+      ? `Watch schedule starts ${format(parseISO(data.schedule.start_date), 'd MMM yyyy')} — ${daysAway} ${daysAway === 1 ? 'day' : 'days'} away.${data.hasPriorRota ? ' Days before then show your previous rota.' : ''}`
       : `Current schedule covered ${range}. Regenerate to cover today.`
 
   const header = (periodLabel: string) => (
@@ -181,7 +187,7 @@ export function WatchCalendar({
                   <div key={fmt(d)} className={`rounded-ws-sm ${inMonth ? '' : 'opacity-40'}`}>
                     <div className="px-ws-1 pt-ws-1 text-right font-mono text-ws-xs text-ws-text-faint">{format(d, 'd')}</div>
                     <div className="space-y-px p-ws-1">
-                      {lanes.map((lane) => <Cell key={lane.id} data={data} lane={lane} date={d} scheduled={scheduled} compact dense={denseMonth} onEdit={onEdit} />)}
+                      {lanes.map((lane) => <Cell key={lane.id} data={data} lane={lane} date={d} scheduled={scheduled} byKey={byKey} compact dense={denseMonth} onEdit={onEdit} />)}
                     </div>
                   </div>
                 )

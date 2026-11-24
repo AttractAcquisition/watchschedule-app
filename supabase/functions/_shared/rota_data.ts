@@ -55,9 +55,17 @@ export async function loadRotaInputs(admin: Admin, vesselId: string) {
 export interface RotaPatch {
   assignments?: (rows: HistoricalAssignment[]) => HistoricalAssignment[]
   opportunities?: HistoricalOpportunity[]
+  /**
+   * Schedule versions that do not exist in the database yet. The per-date
+   * winner rule only keeps an assignment whose `schedule_id` owns its date, so
+   * rows bound for a version still being created would otherwise be dropped
+   * from the replay and the import would score as nothing. Used by
+   * import-watch-history to price a pending historical row before writing it.
+   */
+  versions?: (rows: ScheduleVersion[]) => ScheduleVersion[]
 }
 
-export async function loadGlobalBase(admin: Admin, vesselId: string, before: string, inputs: Awaited<ReturnType<typeof loadRotaInputs>>, patch?: RotaPatch) {
+export async function loadGlobalBase(admin: Admin, vesselId: string, before: string, inputs: Awaited<ReturnType<typeof loadRotaInputs>>, patch?: RotaPatch, windowEnd?: string) {
   const [scheduleRows, assignmentRows, seedResult, vesselResult] = await Promise.all([
     readAll(admin, 'schedules', vesselId), readAll(admin, 'watch_assignments', vesselId),
     admin.from('rota_seed').select('*').eq('vessel_id', vesselId).maybeSingle(),
@@ -67,8 +75,9 @@ export async function loadGlobalBase(admin: Admin, vesselId: string, before: str
   if (vesselResult.error) throw vesselResult.error
   const seed = seedResult.data
   const resetAt = vesselResult.data.fairness_reset_at as string | null
-  const versions = (scheduleRows as (ScheduleVersion & { rota_snapshot: { lanes?: RotaLane[]; opportunities?: Opportunity[]; history_estimated?: boolean } | null })[])
+  const stored = (scheduleRows as (ScheduleVersion & { rota_snapshot: { lanes?: RotaLane[]; opportunities?: Opportunity[]; history_estimated?: boolean } | null })[])
     .filter(s => !resetAt || s.generated_at > resetAt)
+  const versions = patch?.versions ? patch.versions(stored) as typeof stored : stored
   const assignments = patch?.assignments ? patch.assignments(assignmentRows as HistoricalAssignment[]) : assignmentRows as HistoricalAssignment[]
   const opportunities: HistoricalOpportunity[] = [...(patch?.opportunities ?? [])]
   const legacySnapshots: { id: string; snapshot: unknown }[] = []
@@ -107,28 +116,35 @@ export async function loadGlobalBase(admin: Admin, vesselId: string, before: str
     }
     legacySnapshots.push({ id: s.id, snapshot: { ...s.rota_snapshot, opportunities: opportunities.slice(startIndex).map(({ schedule_id: _s, ...o }) => o), history_estimated: true } })
   }
-  const past = canonicalHistory(versions, assignments, opportunities, before)
+  const past = canonicalHistory(versions, assignments, opportunities, before, windowEnd)
+  const currentCrew = new Set(inputs.crew.map(c => c.id))
   const unpaused = (r: Opportunity) => !inputs.charters.some(c => c.start <= r.watch_date && r.watch_date <= c.end)
   past.assignments = past.assignments.filter(unpaused)
   past.opportunities = past.opportunities.filter(unpaused)
+  // Days beyond this window that an older generation still covers. Rostered,
+  // not re-planned — generation scores them so a narrowed window does not erase
+  // its own tail from the ledger (docs/schedule.md §5.4).
+  const retained = {
+    assignments: past.retainedAssignments.filter(unpaused).filter(a => currentCrew.has(a.crew_id)),
+    opportunities: past.retainedOpportunities.filter(unpaused).filter(o => currentCrew.has(o.crew_id)),
+  }
   estimated ||= past.opportunities.some(o => o.estimated)
   const generatedDates = new Set(past.opportunities.map(o => o.watch_date))
   for (const a of past.assignments) generatedDates.add(a.watch_date)
   const imported = seedHistory((seed?.records ?? []).filter((r: SeedRecord) => !generatedDates.has(r.watch_date)), before)
   const baseline: Ledger = seed?.baseline ?? {}
   const beyondSeed = (r: Opportunity) => !baseline[r.crew_id]?.last_watch_date || r.watch_date > baseline[r.crew_id].last_watch_date!
-  const currentIds = new Set(inputs.crew.map(c => c.id))
   const ledger = replayGlobal(
-    Object.fromEntries(Object.entries(baseline).filter(([id]) => currentIds.has(id))),
-    [...imported.assignments, ...past.assignments.filter(beyondSeed)].filter(a => currentIds.has(a.crew_id)),
-    [...imported.opportunities, ...past.opportunities.filter(beyondSeed)].filter(o => currentIds.has(o.crew_id)),
+    Object.fromEntries(Object.entries(baseline).filter(([id]) => currentCrew.has(id))),
+    [...imported.assignments, ...past.assignments.filter(beyondSeed)].filter(a => currentCrew.has(a.crew_id)),
+    [...imported.opportunities, ...past.opportunities.filter(beyondSeed)].filter(o => currentCrew.has(o.crew_id)),
   )
   // Watches standing BEFORE the window — the only history the fixed-watch
   // neighbour rules may treat as fact (docs/fixed-watches.md). Everything from
   // the window start onwards is about to be re-planned, so it is not yet a fact.
   const stoodBefore = new Set<string>()
   for (const a of [...imported.assignments, ...past.assignments]) stoodBefore.add(a.crew_id + ':' + a.watch_date)
-  return { ledger, estimated, legacySnapshots, stoodBefore }
+  return { ledger, estimated, legacySnapshots, stoodBefore, retained }
 }
 
 export function validISODate(value: string) {
