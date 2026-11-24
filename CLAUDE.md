@@ -6,6 +6,14 @@
 
 > Approved 27 October 2026: [docs/fixed-watches.md](docs/fixed-watches.md) adds the captain's **fixed watches** — pinning a named crew member to a specific date *before* generation, under Settings → Watch configuration → Advanced. Generation honours the pin exactly and balances the rest of the rota around it; the pinned watch lands on the ledger like any other, so fairness absorbs it. The neighbour rules (`monday_after_weekend`, `friday_into_weekend`) are checked against **facts only** — another pin, or a watch stood before the window — never against days the engine has yet to plan. New: table `watch_pins`, `_shared/watch_pins.ts`, a `preview_pins` mode and a consent gate on `generate-schedule` (migration `20261027010000`). Server-only writes, RLS and determinism are unchanged.
 
+> Approved 24 November 2026: the dashboard calendar reads the **canonical union of all schedule versions**, not the current schedule alone ([docs/schedule-history-display.md](docs/schedule-history-display.md), [docs/frontend.md](docs/frontend.md) §4.5a). Regeneration never deleted the rota it replaced, and `canonicalHistory` always replayed it into fairness — but the dashboard read `watch_assignments` for `is_current` only, so generating a new window blanked every earlier day on screen while the scores still counted it. The per-date winner rule is now shared by the client (`app/src/lib/canonicalRota.ts`) and the engine (`_shared/rota_v2.ts`) and must stay equivalent in both — it is a seam. Historical assignments whose lane id was retired by a reconfiguration are placed by lane **position** from their own snapshot. Exports stay scoped to the current schedule; a manual override now raises a ~3-second "Fairness score has been updated" toast ([docs/manual-override.md](docs/manual-override.md)).
+
+> Approved 24 November 2026: **a narrowed regeneration re-plans only the days inside its window** ([docs/schedule.md](docs/schedule.md) §7.2). This reverses *"a newer regeneration supersedes the older future, even if its horizon shrinks."* Regenerate 5–15 Nov over a 1–30 Nov schedule and 16–30 Nov are **retained** — still rostered, still shown, still counted. The owner of a date is the newest generation that **actually covers** it. `planGlobal` replays the retained tail into the ledger after planning and before scoring, so the published scores describe the whole rota; an empty tail leaves a run bit-for-bit identical, and determinism is unchanged.
+
+> Approved 24 November 2026: **a watch may be edited on whichever generation owns its day**, not only the current one ([docs/manual-override.md](docs/manual-override.md)). Migration `20261124010000` drops the `is_current` requirement from `apply_manual_override` and checks instead that the days fall inside the amended schedule's own range. A lane request is mapped onto that version's lane by **position** when the id no longer exists (`resolveVersionLane`).
+
+> Approved 24 November 2026: **"Upload past watches"** ([docs/history-import.md](docs/history-import.md)) — the 10th Edge Function, `import-watch-history`, writing real `watch_assignments` from typed rows or a CSV. A date an existing generation covers amends that generation; a date nothing covers gets a new `is_historical` schedule row, grouped into **contiguous runs** so a range never blankets the generated days between records. Imports win conflicts silently. Open to **all tiers**; `seed-fairness` keeps its Dual/Triple image gate and is otherwise untouched. New: `schedules.is_historical`, `_shared/history_import.ts`, `RotaPatch.versions`, migration `20261124020000`.
+
 This is the persistent operating contract for building WatchSchedule. Follow it in **every** session. It is derived **from `/docs`** — the six specification documents are the source of truth. This file summarises them; it never overrides them. When this file and a doc disagree, the doc wins and this file should be corrected.
 
 ---
@@ -77,7 +85,8 @@ The six docs own distinct domains. On conflict, precedence for **behaviour** is:
 These are load-bearing seams. The **names are exact** and identical across docs and the repo. If you change a seam, update **every** document in its row and regenerate `app/src/types/db.ts` if the schema changed.
 
 ### The 9 Edge Functions (canonical directory names)
-`create-checkout-session`, `stripe-webhook`, `create-billing-portal-session`, `parse-crew-list`, `seed-fairness`, `generate-schedule`, `schedule-chat`, `upgrade-subscription`, `override-assignment`.
+`create-checkout-session`, `stripe-webhook`, `create-billing-portal-session`, `parse-crew-list`, `seed-fairness`, `generate-schedule`, `schedule-chat`, `upgrade-subscription`, `override-assignment`, `import-watch-history`.
+- `import-watch-history` (24 Nov 2026) records watches already stood, from typed rows or a CSV, as real `watch_assignments` via the service-only RPC `import_watch_history`. It is **not** a second past-schedule parser: `seed-fairness` still owns image extraction into `rota_seed`. The difference is the destination — seed records only fairness reads, versus assignments the calendar draws. See docs/history-import.md.
 - `override-assignment` (26 Oct 2026) changes who stands ONE lane-day by hand and recomputes fairness through the same replay generation uses; it writes via the service-only RPC `apply_manual_override`, never from the client. See docs/manual-override.md.
 - `upgrade-subscription` (B4) modifies the Stripe subscription to a higher tier's price; it **never** writes `product_tier` — the webhook does, derived from the new price. (Original 7 + this.)
 - `stripe-webhook` is the canonical name (not bare "webhook") and the **only** writer of `payment_status` / `product_tier`.
@@ -95,6 +104,13 @@ then
 updateLedger(lane, crew_id, date, dayType, isFriday)
 ```
 `dayType` is `'weekday' | 'weekend'`; `isFriday` boolean; `ledger` is the per-(lane,crew) `fairness_ledger` state; `alreadyAssigned` is the set of crew already assigned on that date. This 6-argument signature is the canonical seam (fairness.md §4/§11 = schedule.md §5/§11). Keep it byte-for-byte consistent.
+
+### The display seam — must be **equivalent** in the client and the engine (24 Nov 2026)
+```
+canonicalHistory() / versionOwner()        resolveRota() / scheduleOwner()
+supabase/functions/_shared/rota_v2.ts  ==  app/src/lib/canonicalRota.ts
+```
+"the newest generation that **actually covers** the date." The engine uses it to decide which stored version's watches count towards fairness; the client uses it to decide which the calendar shows. If they drift, the calendar and the fairness scores describe different rotas for the same day. Change one, change both, and update `frontend.md` §4.5a and `schedule.md` §7.2.
 
 ### Other seams to keep aligned
 - **Lane rule:** Solo = 1 lane (`kind='solo'`, all eligible crew, no dept); Dual = 2 dept lanes; Triple = 3 dept lanes. **One fairness ledger per lane.**
