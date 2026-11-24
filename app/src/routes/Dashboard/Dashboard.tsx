@@ -21,6 +21,7 @@ import { ScheduleExportButtons } from './ScheduleExportButtons'
 import { FairnessExportButtons } from './FairnessExportButtons'
 import { PrintLayer, usePrintWhenSet, type PrintTarget } from './PrintLayer'
 import { SchedulePrintDoc, FairnessPrintDoc } from './PrintDocuments'
+import { Toast } from '../../components/ui/Toast'
 
 export default function Dashboard() {
   const { profile } = useAuth()
@@ -44,6 +45,8 @@ export default function Dashboard() {
   const [fairnessOpen, setFairnessOpen] = useState(false)
   // The cell the captain is reassigning by hand (docs/manual-override.md).
   const [editing, setEditing] = useState<EditorTarget | null>(null)
+  // Brief confirmation that the manual change's fairness recompute landed.
+  const [fairnessToast, setFairnessToast] = useState(false)
   const [coverageDismissedLocally, setCoverageDismissedLocally] = useState(false)
   const clearPrint = useCallback(() => setPrintTarget(null), [])
   usePrintWhenSet(printTarget, clearPrint)
@@ -138,7 +141,17 @@ export default function Dashboard() {
         onEdit={setEditing}
       />
 
-      {editing && <AssignmentEditor data={data} target={editing} vesselId={vesselId} onClose={() => setEditing(null)} />}
+      {editing && (
+        <AssignmentEditor
+          data={data}
+          target={editing}
+          vesselId={vesselId}
+          onClose={() => setEditing(null)}
+          onApplied={() => setFairnessToast(true)}
+        />
+      )}
+
+      {fairnessToast && <Toast message="Fairness score has been updated" onDismiss={() => setFairnessToast(false)} />}
 
       <section className="flex flex-wrap items-center justify-between gap-ws-4 rounded-ws-md border border-ws-line bg-ws-steel p-ws-5 shadow-ws-md">
         <div>

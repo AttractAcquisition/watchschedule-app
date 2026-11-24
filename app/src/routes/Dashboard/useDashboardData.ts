@@ -1,12 +1,20 @@
 // Dashboard data — all reads are RLS-scoped client selects (the client reads
 // the schedule + fairness; it never computes them). One hook assembles the
-// current schedule, its assignments, the fairness ledger, crew, and active lanes.
+// rota across every generation, the fairness ledger, crew, and active lanes.
+//
+// History: regenerating does NOT delete the rota it replaces — the superseded
+// `schedules` row keeps its `watch_assignments`, and they keep counting towards
+// fairness. So the calendar reads the canonical union of ALL versions (one
+// winner per date, `lib/canonicalRota.ts`) rather than the current schedule
+// alone. Reading only the current schedule blanked every earlier day the moment
+// a new window was generated.
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabase'
+import { resolveRota, type RotaRow, type RotaVersion } from '../../lib/canonicalRota'
 import type { Database } from '../../types/db'
 
 export type Crew = Pick<Database['public']['Tables']['crew_members']['Row'], 'id' | 'full_name' | 'position' | 'department' | 'eligible' | 'updated_at'>
-export type Lane = Pick<Database['public']['Tables']['watch_lanes']['Row'], 'id' | 'kind' | 'department' | 'label' | 'active'> & { departments?: string[] }
+export type Lane = Pick<Database['public']['Tables']['watch_lanes']['Row'], 'id' | 'kind' | 'department' | 'label' | 'active'> & { departments?: string[]; position?: number }
 export type Assignment = Pick<Database['public']['Tables']['watch_assignments']['Row'], 'lane_id' | 'crew_id' | 'watch_date' | 'day_type' | 'is_friday' | 'is_manual'>
 export type LedgerRow = Pick<
   Database['public']['Tables']['vessel_fairness']['Row'],
@@ -18,7 +26,14 @@ export type Leave = Pick<Database['public']['Tables']['crew_leave']['Row'], 'id'
 
 export interface DashboardData {
   schedule: Schedule | null
+  /**
+   * The canonical rota across every generation — history included, one
+   * watchkeeper per lane-day. Only the CURRENT schedule's own days are
+   * editable; see WatchCalendar's `editable` gate.
+   */
   assignments: Assignment[]
+  /** Every date any surviving generation rostered — drives gap rendering. */
+  scheduledDates: string[]
   ledger: LedgerRow[]
   crew: Crew[]
   lanes: Lane[] // active only, ordered
@@ -29,13 +44,34 @@ export interface DashboardData {
   // so it dates the configuration behind the current schedule.
   settingsUpdatedAt: string | null
   // Set when the current schedule has not started yet (a planned-ahead window,
-  // schedule.md §5.1). Dates before it are served by the superseded schedule
-  // that still covers them — the same per-date winner rule as canonicalHistory.
+  // schedule.md §5.1). Earlier dates are served by the superseded schedules that
+  // still cover them, under the same per-date winner rule as canonicalHistory.
   plannedStart: string | null
-  interimScheduledDates: string[]
+  /** True when a superseded generation still supplies days the calendar shows. */
+  hasPriorRota: boolean
 }
 
 export const dashboardKey = (vesselId: string | undefined) => ['dashboard', vesselId] as const
+
+/**
+ * Page past PostgREST's row cap. A vessel accumulates one row per lane-day per
+ * generation, so a season of history runs well beyond a single response.
+ */
+async function readAllAssignments(vesselId: string): Promise<RotaRow[]> {
+  const rows: RotaRow[] = []
+  for (let offset = 0; ; offset += 1000) {
+    const { data, error } = await supabase
+      .from('watch_assignments')
+      .select('schedule_id,lane_id,crew_id,watch_date,day_type,is_friday,is_manual')
+      .eq('vessel_id', vesselId)
+      .order('watch_date')
+      .order('lane_id')
+      .range(offset, offset + 999)
+    if (error) throw error
+    rows.push(...((data ?? []) as RotaRow[]))
+    if ((data?.length ?? 0) < 1000) return rows
+  }
+}
 
 export function useDashboardData(vesselId: string | undefined) {
   return useQuery({
@@ -43,54 +79,37 @@ export function useDashboardData(vesselId: string | undefined) {
     enabled: !!vesselId,
     queryFn: async (): Promise<DashboardData> => {
       const inputs = await Promise.all([
-        supabase.from('schedules').select('id,start_date,end_date,horizon_weeks,generated_at,engine_version,rota_snapshot').eq('vessel_id', vesselId!).eq('is_current', true).maybeSingle(),
+        supabase.from('schedules').select('id,start_date,end_date,horizon_weeks,generated_at,engine_version,rota_snapshot,is_current').eq('vessel_id', vesselId!),
         supabase.from('crew_members').select('id,full_name,position,department,eligible,updated_at').eq('vessel_id', vesselId!).order('full_name'),
-        supabase.from('watch_lanes').select('id,kind,department,label,active').eq('vessel_id', vesselId!).order('position'),
+        // Retired lanes come back too, so a historical lane id still resolves.
+        supabase.from('watch_lanes').select('id,kind,department,label,active,position').eq('vessel_id', vesselId!).order('position'),
         supabase.from('charter_periods').select('id,start_date,end_date,label').eq('vessel_id', vesselId!).eq('status', 'booked').order('start_date'),
         supabase.from('crew_leave').select('id,crew_member_id,start_date,end_date').eq('vessel_id', vesselId!).eq('status', 'booked'),
         supabase.from('watch_settings').select('updated_at').eq('vessel_id', vesselId!).maybeSingle(),
-      ])
-
-      for (const result of inputs) if (result.error) throw result.error
-      const [{ data: sched }, { data: crew }, { data: lanes }, { data: charters }, { data: leave }, { data: settings }] = inputs
-      const outputs = await Promise.all([
-        sched
-          ? supabase.from('watch_assignments').select('lane_id,crew_id,watch_date,day_type,is_friday,is_manual').eq('schedule_id', sched.id).order('watch_date')
-          : Promise.resolve({ data: [] as Assignment[], error: null }),
         supabase.from('vessel_fairness').select('crew_id,total_watches,weekday_watches,weekend_watches,friday_watches,last_watch_date,consecutive_run,fairness_score,balance,weekday_opportunities,weekend_opportunities,history_estimated').eq('vessel_id', vesselId!),
       ])
 
-      for (const result of outputs) if (result.error) throw result.error
-      const [{ data: assignments }, { data: ledger }] = outputs
-      const crewList = (crew ?? []) as Crew[]
-      const laneList = scheduleLanes(sched?.rota_snapshot, (lanes ?? []) as Lane[], (assignments ?? []) as Assignment[])
+      for (const result of inputs) if (result.error) throw result.error
+      const [{ data: schedules }, { data: crew }, { data: lanes }, { data: charters }, { data: leave }, { data: settings }, { data: ledger }] = inputs
 
-      // A planned-ahead schedule must not blank out the rota the crew are
-      // currently working: fill the days before it from the newest schedule
-      // that still covers them, for lanes the configuration kept.
+      const versions = (schedules ?? []) as (RotaVersion & { is_current: boolean })[]
+      const sched = versions.find((s) => s.is_current) ?? null
+      const rows = sched ? await readAllAssignments(vesselId!) : []
+
+      const crewList = (crew ?? []) as Crew[]
+      const allLanes = (lanes ?? []) as Lane[]
+      const own = rows.filter((r) => r.schedule_id === sched?.id) as Assignment[]
+      const laneList = scheduleLanes(sched?.rota_snapshot, allLanes.filter((l) => l.active), own)
+
+      // One winner per date across every generation — the server's rule, so the
+      // calendar and the fairness scores can never disagree about a day.
+      const resolved = resolveRota({ versions, rows, lanes: laneList })
+
       const today = new Date().toISOString().slice(0, 10)
-      const plannedStart = sched && sched.start_date > today ? sched.start_date : null
-      let merged = (assignments ?? []) as Assignment[]
-      let interimScheduledDates: string[] = []
-      if (sched && plannedStart) {
-        const prior = await supabase.from('schedules').select('id,rota_snapshot').eq('vessel_id', vesselId!)
-          .neq('id', sched.id).lte('start_date', today).gte('end_date', today)
-          .order('generated_at', { ascending: false }).limit(1).maybeSingle()
-        if (prior.error) throw prior.error
-        if (prior.data) {
-          const before = await supabase.from('watch_assignments').select('lane_id,crew_id,watch_date,day_type,is_friday,is_manual')
-            .eq('schedule_id', prior.data.id).lt('watch_date', plannedStart).order('watch_date')
-          if (before.error) throw before.error
-          const laneIds = new Set(laneList.map((l) => l.id))
-          const kept = ((before.data ?? []) as Assignment[]).filter((a) => laneIds.has(a.lane_id))
-          merged = [...kept, ...merged]
-          const snapshot = prior.data.rota_snapshot as { scheduled_dates?: string[] } | null
-          interimScheduledDates = (snapshot?.scheduled_dates ?? kept.map((a) => a.watch_date)).filter((d) => d < plannedStart)
-        }
-      }
       return {
         schedule: (sched ?? null) as Schedule | null,
-        assignments: merged,
+        assignments: resolved.assignments as Assignment[],
+        scheduledDates: resolved.scheduledDates,
         ledger: (ledger ?? []) as LedgerRow[],
         crew: crewList,
         lanes: laneList,
@@ -98,8 +117,8 @@ export function useDashboardData(vesselId: string | undefined) {
         charters: (charters ?? []) as Charter[],
         leave: (leave ?? []) as Leave[],
         settingsUpdatedAt: settings?.updated_at ?? null,
-        plannedStart,
-        interimScheduledDates,
+        plannedStart: sched && sched.start_date > today ? sched.start_date : null,
+        hasPriorRota: !!sched && resolved.assignments.some((a) => a.watch_date < sched.start_date),
       }
     },
     staleTime: 30_000,

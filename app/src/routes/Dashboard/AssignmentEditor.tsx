@@ -42,11 +42,13 @@ async function callOverride(body: Record<string, unknown>): Promise<OverrideResp
   return data ?? {}
 }
 
-export function AssignmentEditor({ data, target, vesselId, onClose }: {
+export function AssignmentEditor({ data, target, vesselId, onClose, onApplied }: {
   data: DashboardData
   target: EditorTarget
   vesselId: string | undefined
   onClose: () => void
+  /** Called once the override is persisted and fairness has been rewritten. */
+  onApplied?: () => void
 }) {
   const queryClient = useQueryClient()
   const [options, setOptions] = useState<Option[] | null>(null)
@@ -94,6 +96,9 @@ export function AssignmentEditor({ data, target, vesselId, onClose }: {
         return
       }
       await queryClient.invalidateQueries({ queryKey: dashboardKey(vesselId) })
+      // The server recomputed fairness in the same transaction as the change
+      // (docs/manual-override.md) — tell the captain it moved.
+      onApplied?.()
       onClose()
     } catch (err) {
       setError((err as Error).message)

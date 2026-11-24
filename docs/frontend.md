@@ -197,8 +197,29 @@ Top bar (`branding.md`), then two primary regions plus actions.
 - **Edge states:** no schedule yet (shouldn't happen post-onboarding) -> invite generation.
 - **A current schedule that has not started yet** (26 October 2026 — possible once a window may be planned ahead, `schedule.md` §5.1). This is a planned state, **not** an error, and must read differently from an *expired* schedule:
   - Copy distinguishes the two: a future window says "Watch schedule starts `<date>`" (with how far off it is); a window that has ended keeps today's "Current schedule covered `<range>` — regenerate to cover today."
-  - **The superseded rota stays on the calendar for the interim days.** The previous schedule's rows persist (`is_current = false`), so the dashboard loads the newest schedule that covers today alongside the planned one and shows it for dates **before** the planned window's start — the same per-date winner rule the engine uses (`canonicalHistory`). Planning December in October must never blank out November's rota.
-  - Interim days are filled only for lanes the current configuration still has; a lane that no longer exists renders as an ordinary empty cell rather than inventing a row. The calendar states which days are the previous rota.
+  - **The superseded rota stays on the calendar.** The previous schedule's rows persist (`is_current = false`), so the dashboard shows them for dates the planned window does not cover. Planning December in October must never blank out November's rota. See **§4.5a** — this is one case of the general rule, not a special case of its own.
+  - The calendar states which days come from the previous rota.
+
+#### §4.5a The calendar reads every generation, not just the current one (24 November 2026)
+
+Regeneration **never deletes** the rota it replaces: `publish_rota` flips `is_current = false` and inserts a new `schedules` row, leaving the superseded row's `watch_assignments` intact. Those watches were stood, they still count towards fairness (`canonicalHistory` replays them), and the captain must still be able to see them.
+
+So the dashboard reads the **canonical union of all schedule versions**, resolved by one winner per date, and not the current schedule alone. `useDashboardData` fetches every `schedules` row and every `watch_assignments` row for the vessel (paged past the row cap) and resolves them through `app/src/lib/canonicalRota.ts`.
+
+**The winner rule is the engine's rule, verbatim** — the newest generation whose `start_date <= date`, and only if that generation also covers the date (`supabase/functions/_shared/rota_v2.ts` → `canonicalHistory`). This is a **seam**: the two implementations must stay equivalent, or the calendar and the fairness scores will disagree about the same day. The second clause preserves the documented "a newer regeneration supersedes the older future, even if its horizon shrinks" rule. Dates in the past are unaffected by it, because a regeneration's start is always clamped to today or later (`generationWindow`) — which is precisely why history survives.
+
+Three ways the previous, current-schedule-only read lost history, all fixed by this:
+
+1. **Generating from today.** A window starting today is not "planned ahead", so the interim backfill never fired and every earlier day in the month vanished.
+2. **More than one prior generation.** Only the single schedule covering today was ever loaded, so a vessel with Sept/Oct/Nov schedules showed November at best.
+3. **Reconfigured lanes.** `save_watch_configuration` mints a **new lane uuid** when a lane is added and deactivates removed ones, so a pre-reconfiguration schedule references lane ids the live rota no longer has. Matching on lane id alone dropped that history silently.
+
+For (3) a historical assignment is placed by **lane position** recorded in its own version's snapshot when its lane id is no longer live, so the watchkeeper still appears in the right row. A row that matches its lane id outright always wins the lane-day; history whose position no longer exists is dropped rather than misfiled. Exact per-version viewing remains the job of Schedule History (A2).
+
+**History is read-only.** Only the current schedule's own days stay clickable — the `editable` gate in `WatchCalendar` is unchanged, and `override-assignment` still refuses anything outside the current schedule (`docs/manual-override.md`).
+
+**Exports are not affected.** `scheduledDates()` stays scoped to the current schedule, because a WhatsApp paste or a printed rota is the rota in force, not the vessel's whole history.
+
 - **Unapplied-change banner.** Settings and crew edits only reach the schedule on generation, so the dashboard must say when the live schedule is behind the saved configuration. One gentle banner covers both sources, each detected by comparing a timestamp against `schedules.generated_at` for the current schedule:
   - **Crew** — the newest `crew_members.updated_at`; copy "Crew has changed since the last generation — regenerate to update the schedule."
   - **Watch configuration** — `watch_settings.updated_at` (every save through `save_watch_configuration` rewrites that row, so lane/department/horizon/weekend-structure changes are all covered); copy "Watch settings have changed since the last generation — …".

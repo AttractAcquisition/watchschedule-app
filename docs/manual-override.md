@@ -6,7 +6,7 @@ This contract reverses the "manual per-day schedule editing" exclusion in `addit
 
 On the dashboard calendar the captain clicks the person standing a given lane's watch and changes them to someone else — or to nobody. The schedule is **not** re-planned: the generator owns generation, the captain owns that one cell. Every other day stays exactly as generated. Fairness **is** recomputed immediately, by the ordinary ledger replay over the amended assignments, so the scores always describe the rota the crew actually work.
 
-A regeneration replaces its whole window, so manual changes inside it are overwritten — intended, and stated in the UI. Manual changes on dates **before** a regeneration's start survive as history and keep counting towards fairness, under the same per-date winner rule as every other superseded schedule.
+A regeneration replaces its whole window, so manual changes inside it are overwritten — intended, and stated in the UI. Manual changes on dates **before** a regeneration's start survive as history and keep counting towards fairness, under the same per-date winner rule as every other superseded schedule — and, as of 24 November 2026, they stay **visible** on the calendar too, with their hand-changed ring intact (`frontend.md` §4.5a). Until then the dashboard read only the current schedule, so a regeneration hid every earlier override even though the ledger still counted it.
 
 ## Rules, consent and refusal
 
@@ -34,6 +34,8 @@ The crew member taking a watch gains the **opportunity** for those days, appende
 
 Tests prove the property this rests on: replaying a published rota reproduces the generator's ledger byte-for-byte, so a recompute with nothing amended cannot drift from what generation wrote.
 
+**The recompute is now visible (24 November 2026).** It always happened, in the same transaction as the change, but nothing on screen said so — which left the captain unsure whether the scores had moved and asking for a "regenerate fairness score" button. There is no such button, and deliberately so: a button implying fairness might be stale would misdescribe the system. Instead, a successful apply raises a brief confirmation — bottom-right, ~3 seconds, `components/ui/Toast.tsx` — reading **"Fairness score has been updated"**. `AssignmentEditor` reports the apply through an `onApplied` callback; `Dashboard` owns the toast. No new endpoint, no new table, no change to when fairness is computed.
+
 ## Seams
 
 - **Edge Function `override-assignment`** (the 9th; `supabase/functions/override-assignment/`). Two modes on one contract, so the browser holds no copy of the rules:
@@ -44,7 +46,7 @@ Tests prove the property this rests on: replaying a published rota reproduces th
 - **`_shared/rota_data.ts`** — `loadGlobalBase` takes an optional `RotaPatch`, an amendment replayed as if already saved, so a change can be scored before it is persisted.
 - **RPC `apply_manual_override(p_vessel, p_revision, p_plan)`** — service-role only, migration `20261026030000`. Rewrites the block's assignments, re-checks the one-watch-a-day invariant, appends the opportunities, logs a `manual_override` row in `fairness_events`, rewrites `vessel_fairness`, and bumps `rota_revision` — all in one transaction behind the same revision check `publish_rota` uses, so an in-flight generation fails safely rather than publishing over the change.
 - **`watch_assignments.is_manual`** — which rows the captain set by hand. Generation writes `false`, so a regenerate clears the flag with the overrides.
-- **Client** — `AssignmentEditor.tsx` (the picker and the per-rule consent checkboxes) and `WatchCalendar.tsx` (editable cells, a gold inset ring on hand-changed days). The client computes no rules and writes no rota table; it calls the function and invalidates the dashboard query.
+- **Client** — `AssignmentEditor.tsx` (the picker and the per-rule consent checkboxes) and `WatchCalendar.tsx` (editable cells, a gold inset ring on hand-changed days). The client computes no rules and writes no rota table; it calls the function and invalidates the dashboard query, then raises the fairness confirmation toast.
 
 Invariants unchanged: Supabase is the single source of truth, RLS is the access gate, the schedule and fairness tables are written only by server functions through service-role, secrets stay in Edge Functions, and generation stays deterministic — an override is an input to the next replay, never a source of randomness in it.
 
