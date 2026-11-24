@@ -44,7 +44,7 @@ Deno.serve(async req => {
     // Consent and refusal are answers, not transport failures.
     if (pinsNeedingConsent(pins).length) return json(req, { requires_pin_consent: true, pins })
 
-    const plan = planGlobal({ startDate: start, endDate, settings, crew: inputs.crew, lanes: inputs.lanes, base: base.ledger, leave: inputs.leave, charters: inputs.charters, pins: enginePins(pins), retained: base.retained })
+    const plan = planGlobal({ startDate: start, endDate, settings, crew: inputs.crew, lanes: inputs.lanes, base: base.ledger, leave: inputs.leave, charters: inputs.charters, pins: enginePins(pins), retained: base.retained, weekdayWeeks: base.weekdayWeeks })
     const { data: scheduleId, error: publishError } = await admin.rpc('publish_rota', {
       p_vessel: vesselId, p_revision: revision,
       p_plan: { ...plan, ledger: undefined, legacy_snapshots: base.legacySnapshots, snapshot: { lanes: inputs.lanes, opportunities: plan.opportunities, scheduled_dates: [...new Set(plan.events.map(e => e.watch_date))], weekend_structure: settings.weekend_structure ?? 'per_day', history_estimated: base.estimated }, history_estimated: base.estimated },

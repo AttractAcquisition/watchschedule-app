@@ -383,3 +383,135 @@ Deno.test('forward pin awareness does not disturb determinism', () => {
   )
 })
 
+
+// ---------------------------------------------------------------------------
+// fairness.md rule 1c — same-week weekday spacing (24 November 2026)
+// ---------------------------------------------------------------------------
+
+// The vessel the defect was reported on: one lane, six eligible crew,
+// sat_sun_block. Before rule 1c this produced Greta 1+4 Dec, Elisa 8+11 Dec
+// and Silvio 15+18 Dec — a Tuesday and the Friday of the same week, three days
+// apart, every time, while the TOTALS stayed balanced. That is the signature of
+// a burden rate with no concept of a week: Friday is chosen on its own ladder
+// (W_FRIDAY_SELECT) and kept landing on whoever the weekday rotation had
+// already used on the Tuesday.
+const december = (overrides = {}) => planGlobal({
+  crew: ['greta', 'elisa', 'silvio', 'sienna', 'jessica', 'alexander'].map(id => crew(id)),
+  lanes: [lane('bridge')],
+  startDate: '2026-12-01',
+  settings: { ...settings, horizon_weeks: 4, weekend_structure: 'sat_sun_block' },
+  base: {},
+  ...overrides,
+})
+
+// crew -> the ISO weeks in which they stand more than one weekday watch
+const repeatWeeks = (plan: { assignments: PlannedAssignment[] }) => {
+  const seen = new Map<string, number>()
+  for (const a of plan.assignments) {
+    if (isoWeekday(a.watch_date) >= 6) continue
+    const k = a.crew_id + ':' + addDays(a.watch_date, 1 - isoWeekday(a.watch_date))
+    seen.set(k, (seen.get(k) ?? 0) + 1)
+  }
+  return [...seen].filter(([, n]) => n > 1).map(([k]) => k).sort()
+}
+
+Deno.test('rule 1c: six crew never stand two weekday watches in one ISO week', () => {
+  const plan = december()
+  assert.deepEqual(repeatWeeks(plan), [])
+  // and the rota is still fully covered — spacing must not create gaps
+  assert.equal(plan.assignments.filter(a => isoWeekday(a.watch_date) < 6).length,
+    new Set(plan.assignments.filter(a => isoWeekday(a.watch_date) < 6).map(a => a.watch_date)).size)
+  // no relaxation was needed: five weekday slots, six candidates
+  assert.equal(plan.events.filter(e => e.reason_code === 'constraint_relaxed_week_exclusion').length, 0)
+})
+
+Deno.test('rule 1c: a weekend is not CHECKED against the week it falls in', () => {
+  // Every crew member has already spent this ISO week's weekday slot. The
+  // weekdays must therefore all relax — but the weekend block of the same week
+  // is a different rotation and must be assigned cleanly, unrelaxed.
+  const weekOf = (d: string) => addDays(d, 1 - isoWeekday(d))
+  const spent = ['greta', 'elisa', 'silvio', 'sienna', 'jessica', 'alexander'].map(id => id + ':' + weekOf('2026-12-01'))
+  const plan = december({ weekdayWeeks: spent, settings: { ...settings, horizon_weeks: 1, weekend_structure: 'sat_sun_block' } })
+  const kind = (d: string) => plan.events.find(e => e.watch_date === d)!.reason_code
+  for (const d of ['2026-12-01', '2026-12-02', '2026-12-03', '2026-12-04'])
+    assert.equal(kind(d), 'constraint_relaxed_week_exclusion', d + ' had no clean candidate left')
+  for (const d of ['2026-12-05', '2026-12-06'])
+    assert.equal(kind(d), 'global_fairness_match', d + ' is a weekend — rule 1c must not touch it')
+})
+
+Deno.test('rule 1c: a weekend is not COUNTED towards the week either', () => {
+  // Five crew, one lane: a week holds five weekday slots plus one weekend
+  // block — six duties for five people. Somebody must stand twice, and because
+  // weekday repeats are excluded it has to be a weekday AND that week's
+  // weekend. If the weekend counted towards the week, this would be impossible
+  // and the engine would be forced into a recorded relaxation instead.
+  const weekOf = (d: string) => addDays(d, 1 - isoWeekday(d))
+  const plan = planGlobal({
+    crew: ['a', 'b', 'c', 'd', 'e'].map(id => crew(id)),
+    lanes: [lane('bridge')],
+    startDate: '2026-12-07',
+    settings: { ...settings, horizon_weeks: 1, weekend_structure: 'sat_sun_block' },
+    base: {},
+  })
+  assert.deepEqual(repeatWeeks(plan), [], 'no weekday repeats')
+  assert.equal(plan.events.filter(e => e.reason_code === 'constraint_relaxed_week_exclusion').length, 0,
+    'nothing had to be forced')
+  const pairs = new Set<string>()
+  for (const a of plan.assignments) {
+    const others = plan.assignments.filter(o => o.crew_id === a.crew_id && weekOf(o.watch_date) === weekOf(a.watch_date))
+    if (others.some(o => isoWeekday(o.watch_date) < 6) && others.some(o => isoWeekday(o.watch_date) >= 6)) pairs.add(a.crew_id)
+  }
+  assert.ok(pairs.size > 0, 'somebody stands a weekday and that same week\'s weekend, freely')
+})
+
+Deno.test('rule 1c yields rather than leave a weekday uncovered', () => {
+  // Three crew, five weekday slots: a repeat is unavoidable. Coverage wins and
+  // the relaxation is RECORDED, per fairness.md section 8 rule 2c.
+  const plan = planGlobal({
+    crew: ['a', 'b', 'c'].map(id => crew(id)),
+    lanes: [lane('bridge')],
+    startDate: '2026-12-01',
+    settings: { ...settings, horizon_weeks: 1, weekend_structure: 'sat_sun_block' },
+    base: {},
+  })
+  const weekdays = plan.assignments.filter(a => isoWeekday(a.watch_date) < 6)
+  assert.equal(weekdays.length, 5, 'every weekday still covered')
+  assert.equal(plan.events.filter(e => e.reason_code === 'no_eligible_crew').length, 0)
+  assert.ok(plan.events.some(e => e.reason_code === 'constraint_relaxed_week_exclusion'),
+    'the forced repeat is recorded, never silent')
+  assert.ok(repeatWeeks(plan).length > 0, 'and it genuinely is a repeat')
+})
+
+Deno.test('rule 1c: a week the window only half covers is spaced from the facts either side', () => {
+  // Window opens Wednesday 2 Dec. Monday 30 Nov and Tuesday 1 Dec belong to the
+  // SAME ISO week and were stood by `a` and `b` under an earlier generation —
+  // neither is being replanned, so both are fact. Rule 1c must see them.
+  const weekOf = (d: string) => addDays(d, 1 - isoWeekday(d))
+  const plan = planGlobal({
+    crew: ['a', 'b', 'c', 'd', 'e', 'f'].map(id => crew(id)),
+    lanes: [lane('bridge')],
+    startDate: '2026-12-02',
+    settings: { ...settings, horizon_weeks: 1, weekend_structure: 'sat_sun_block' },
+    base: {},
+    weekdayWeeks: ['a:' + weekOf('2026-11-30'), 'b:' + weekOf('2026-12-01')],
+  })
+  const firstWeek = plan.assignments
+    .filter(a => isoWeekday(a.watch_date) < 6 && weekOf(a.watch_date) === weekOf('2026-12-02'))
+    .map(a => a.crew_id)
+  assert.ok(!firstWeek.includes('a'), 'a already stood the Monday of this week')
+  assert.ok(!firstWeek.includes('b'), 'b already stood the Tuesday of this week')
+  assert.equal(firstWeek.length, 3, 'Wed/Thu/Fri still covered')
+  assert.equal(new Set(firstWeek).size, 3)
+})
+
+Deno.test('rule 1c never disturbs determinism', () => {
+  const a = december()
+  const b = december()
+  assert.deepEqual(a.assignments, b.assignments)
+  assert.deepEqual(a.events, b.events)
+  // and the same holds with facts supplied from outside the window
+  const w = ['greta:2026-11-30', 'elisa:2026-12-07']
+  assert.deepEqual(december({ weekdayWeeks: w }).assignments, december({ weekdayWeeks: w }).assignments)
+  // an empty fact list is identical to none at all
+  assert.deepEqual(december({ weekdayWeeks: [] }).assignments, a.assignments)
+})

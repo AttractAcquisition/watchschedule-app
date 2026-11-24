@@ -1,7 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { type Ledger } from './fairness_engine.ts'
+import { isoWeekday, type Ledger } from './fairness_engine.ts'
 import { makeAvailability, type Crew, type LeaveRange } from './schedule_engine.ts'
-import { seedHistory, type SeedRecord, canonicalHistory, replayGlobal, type HistoricalAssignment, type HistoricalOpportunity, type Opportunity, type RotaLane, type ScheduleVersion } from './rota_v2.ts'
+import { seedHistory, isoWeekKey, type SeedRecord, canonicalHistory, replayGlobal, type HistoricalAssignment, type HistoricalOpportunity, type Opportunity, type RotaLane, type ScheduleVersion } from './rota_v2.ts'
 import type { WatchPin } from './watch_pins.ts'
 
 export async function rotaContext(req: Request) {
@@ -158,7 +158,17 @@ export async function loadGlobalBase(admin: Admin, vesselId: string, before: str
   // the window start onwards is about to be re-planned, so it is not yet a fact.
   const stoodBefore = new Set<string>()
   for (const a of [...imported.assignments, ...past.assignments]) stoodBefore.add(a.crew_id + ':' + a.watch_date)
-  return { ledger, estimated, legacySnapshots, stoodBefore, retained }
+  // fairness.md rule 1c needs the ISO weeks a crew member has ALREADY spent a
+  // weekday watch in, for the weeks the generation window covers only part of.
+  // Both directions count, because both are rostered fact: history behind the
+  // window, and the retained tail ahead of it (schedule.md 7.2) which this run
+  // will not re-plan. Day type is taken from the date, not the stored column,
+  // so it matches the engine's own definition for every source.
+  const weekdayWeeks = new Set<string>()
+  for (const a of [...imported.assignments, ...past.assignments, ...retained.assignments]) {
+    if (isoWeekday(a.watch_date) < 6) weekdayWeeks.add(a.crew_id + ':' + isoWeekKey(a.watch_date))
+  }
+  return { ledger, estimated, legacySnapshots, stoodBefore, retained, weekdayWeeks: [...weekdayWeeks].sort() }
 }
 
 /**

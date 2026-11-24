@@ -4,6 +4,11 @@ import { makeAvailability, type Crew, type LeaveRange, type CharterRange, type S
 import { pinnedCrewForBlock, type EnginePin } from './watch_pins.ts'
 
 export const DEPARTMENTS = ['deck', 'interior', 'engineering', 'officer'] as const
+
+// fairness.md rule 1c keys same-week weekday spacing by ISO week, and the
+// Monday that opens the week is the cheapest stable name for it: one string
+// compare, no year/week arithmetic, and no week-53 edge to get wrong.
+export const isoWeekKey = (date: string) => addDays(date, 1 - isoWeekday(date))
 export interface RotaLane { id: string; label: string; departments: string[]; position: number }
 export interface Opportunity { crew_id: string; watch_date: string; estimated?: boolean }
 export interface ScheduleVersion { id: string; start_date: string; end_date: string; generated_at: string; engine_version?: number }
@@ -147,7 +152,7 @@ export function globalScores(ledger: Ledger, ids: string[]) {
   }))
 }
 
-export function planGlobal(input: { startDate: string; settings: ScheduleSettings; lanes: RotaLane[]; crew: Crew[]; base: Ledger; leave?: LeaveRange[]; charters?: CharterRange[]; endDate?: string | null; pins?: EnginePin[]; retained?: { assignments: PlannedAssignment[]; opportunities: Opportunity[] } }) {
+export function planGlobal(input: { startDate: string; settings: ScheduleSettings; lanes: RotaLane[]; crew: Crew[]; base: Ledger; leave?: LeaveRange[]; charters?: CharterRange[]; endDate?: string | null; pins?: EnginePin[]; retained?: { assignments: PlannedAssignment[]; opportunities: Opportunity[] }; weekdayWeeks?: string[] }) {
   const lanes = [...input.lanes].sort((a, b) => a.position - b.position || cmp(a.id, b.id))
   const ledger: Ledger = Object.fromEntries(Object.entries(input.base).map(([id, e]) => [id, { ...e }]))
   const end = generationEnd(input.startDate, input.settings.horizon_weeks, input.endDate)
@@ -183,6 +188,12 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
   // Who stood which date in THIS run — carries the Friday-to-weekend exclusion
   // across the block loop; dates before the window come from the ledger instead.
   const stood = new Set<string>()
+  // fairness.md rule 1c: at most one weekday watch per crew member per ISO
+  // week. Keyed `crewId:weekMonday`. Seeded with the weeks already spoken for
+  // OUTSIDE this window — history behind it, a retained tail ahead of it — so
+  // a window that begins or ends midweek still spaces that partial week. Those
+  // are rostered facts, exactly as a pin is; see docs/fixed-watches.md.
+  const weekdayWeeks = new Set<string>(input.weekdayWeeks ?? [])
   for (let date = input.startDate; date <= end; date = addDays(date, 1)) {
     if (!scheduled(date) || covered.has(date)) continue
     const wd = isoWeekday(date)
@@ -227,10 +238,16 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
     // reshuffle the Friday before it.
     const pinnedIntoWeekend = (id: string) =>
       weekendAfterFriday.some(d => scheduled(d) && isPinnedOn(id, d))
+    // A block can straddle the weekday/weekend line (fri_sat_sun_block leads
+    // on a Friday), so the rule follows the DAYS, not the block's lead day.
+    // Weekend days are neither checked nor counted: the two rotations are
+    // independent, and a weekend must never block the week around it.
+    const blockWeeks = [...new Set(days.filter(d => isoWeekday(d) < 6).map(isoWeekKey))]
+    const secondWeekdayThisWeek = (id: string) => blockWeeks.some(w => weekdayWeeks.has(id + ':' + w))
     const pinnedOnFollowingMonday = (id: string) =>
       !!mondayAfterBlock && isoWeekday(mondayAfterBlock) === 1
       && scheduled(mondayAfterBlock) && isPinnedOn(id, mondayAfterBlock)
-    type Candidate = { id: string; relaxed: number; relaxedKind: 'monday' | 'friday' | null; cost: number; total: number; scarce: number; last: string; consecutive: number }
+    type Candidate = { id: string; relaxed: number; relaxedKind: 'monday' | 'friday' | 'week' | null; cost: number; total: number; scarce: number; last: string; consecutive: number }
     const compare = (a: Candidate, b: Candidate) => a.relaxed - b.relaxed || a.cost - b.cost || a.total - b.total || a.scarce - b.scarce || cmp(a.last, b.last) || a.consecutive - b.consecutive || tieRank.get(a.id)! - tieRank.get(b.id)!
     const rank = (id: string): Candidate => {
       const e = ledger[id] ?? zeroEntry(id)
@@ -238,9 +255,14 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
       const mondayAfterWeekend = (wd === 1 && (e.last_weekend_date === addDays(date, -1) || e.last_weekend_date === addDays(date, -2)))
         || pinnedOnFollowingMonday(id)
       const fridayIntoWeekend = stoodWeekendFriday(id) || pinnedIntoWeekend(id)
+      // Rule 1c. It can coincide with the Friday rule on a Friday (never with
+      // the Monday rule — a Monday opens its own ISO week, so no weekday
+      // precedes it there). When it does, the event names the neighbour rule:
+      // the stronger violation, and the one a captain recognises.
+      const weekdayRepeat = secondWeekdayThisWeek(id)
       return {
-        id, relaxed: mondayAfterWeekend || fridayIntoWeekend ? 1 : 0,
-        relaxedKind: mondayAfterWeekend ? 'monday' as const : fridayIntoWeekend ? 'friday' as const : null,
+        id, relaxed: mondayAfterWeekend || fridayIntoWeekend || weekdayRepeat ? 1 : 0,
+        relaxedKind: mondayAfterWeekend ? 'monday' as const : fridayIntoWeekend ? 'friday' as const : weekdayRepeat ? 'week' as const : null,
         cost: days.reduce((sum, d) => sum + selectionCost(e, d, isoWeekday(d) >= 6 ? 'weekend' : 'weekday', isoWeekday(d) === 5), 0),
         total: e.total_watches, scarce: wd >= 6 ? e.weekend_watches : wd === 5 ? e.friday_watches : 0,
         last: e.last_watch_date ?? '', consecutive: e.consecutive_run,
@@ -296,9 +318,10 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
           const a: PlannedAssignment = { lane_id: lane.id, crew_id: c.id, watch_date: d, day_type: isoWeekday(d) >= 6 ? 'weekend' : 'weekday', is_friday: isoWeekday(d) === 5 }
           assignments.push(a)
           stood.add(c.id + ':' + d)
+          for (const w of blockWeeks) weekdayWeeks.add(c.id + ':' + w)
           updateLedger({ id: lane.id, kind: 'dept', department: null, pool: blockPools[i] }, c.id, d, a.day_type, a.is_friday, ledger)
         }
-        events.push({ lane_id: lane.id, crew_id: c?.id ?? null, watch_date: d, reason_code: !c ? 'no_eligible_crew' : blockPins[i] ? 'fixed_watch' : c.relaxedKind ? `constraint_relaxed_${c.relaxedKind}_exclusion` : 'global_fairness_match', detail: { scope: 'vessel', block_days: days, pool: blockPools[i], pinned: !!blockPins[i], candidates: candidates[i].map(c => ({ crew_id: c.id, cost: c.cost, monday_relaxed: c.relaxedKind === 'monday', friday_relaxed: c.relaxedKind === 'friday' })), selected_cost: c?.cost ?? null, matched_lanes: result?.filled, relaxed: !!c?.relaxed } })
+        events.push({ lane_id: lane.id, crew_id: c?.id ?? null, watch_date: d, reason_code: !c ? 'no_eligible_crew' : blockPins[i] ? 'fixed_watch' : c.relaxedKind ? `constraint_relaxed_${c.relaxedKind}_exclusion` : 'global_fairness_match', detail: { scope: 'vessel', block_days: days, pool: blockPools[i], pinned: !!blockPins[i], candidates: candidates[i].map(c => ({ crew_id: c.id, cost: c.cost, monday_relaxed: c.relaxedKind === 'monday', friday_relaxed: c.relaxedKind === 'friday', week_relaxed: c.relaxedKind === 'week' })), selected_cost: c?.cost ?? null, matched_lanes: result?.filled, relaxed: !!c?.relaxed } })
       })
     }
   }
