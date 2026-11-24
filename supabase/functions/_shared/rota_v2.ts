@@ -160,6 +160,20 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
   // the manual override's consented out-of-pool assignee.
   const crewIds = new Set(input.crew.map(c => c.id))
   const pins = (input.pins ?? []).filter(p => crewIds.has(p.crew_id) && lanes.some(l => l.id === p.lane_id))
+  // A pin is a FACT, and docs/fixed-watches.md counts "another pin" among the
+  // facts the neighbour rules respect. Generation checked only BACKWARDS —
+  // what the ledger and this run had already stood — so it never saw a pin
+  // sitting on the day after the one it was filling. Pin someone to a Saturday
+  // and the engine would hand them the Friday before it, breaking the
+  // Friday-into-weekend rule with a clean alternative going spare and nobody
+  // ever consenting, because at pin time the Friday was not yet a fact either.
+  const pinnedOn = new Map<string, Set<string>>()
+  for (const p of pins) {
+    const at = pinnedOn.get(p.watch_date) ?? new Set<string>()
+    at.add(p.crew_id)
+    pinnedOn.set(p.watch_date, at)
+  }
+  const isPinnedOn = (crewId: string, date: string) => !!pinnedOn.get(date)?.has(crewId)
   const participants = [...new Set([...pools.flat(), ...pins.map(p => p.crew_id)])].sort(cmp)
   const assignments: PlannedAssignment[] = []
   const opportunities: Opportunity[] = []
@@ -199,13 +213,31 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
     const weekendFriday = structure !== 'fri_sat_sun_block' && wd >= 6 ? addDays(date, wd === 6 ? -1 : -2) : null
     const stoodWeekendFriday = (id: string) =>
       !!weekendFriday && (stood.has(id + ':' + weekendFriday) || ledger[id]?.last_watch_date === weekendFriday)
+    // Forward-looking halves of the same two rules, against pins only — the one
+    // kind of future this run can know. Filling a Friday, a pin on either day
+    // of the weekend it leads into is the same violation seen from the other
+    // side; filling a weekend, a pin on the Monday after it likewise.
+    const weekendAfterFriday = structure !== 'fri_sat_sun_block' && wd === 5
+      ? [addDays(date, 1), addDays(date, 2)] : []
+    const mondayAfterBlock = wd >= 6 ? addDays(days[days.length - 1], 1) : null
+    // Only a pin that will actually be STOOD counts. A pin on a day the
+    // schedule never covers — weekends off, a charter pause — is inert, and
+    // docs/fixed-watches.md is explicit that an inert pin is not a fact for
+    // anyone else. Without this guard a dormant weekend pin would silently
+    // reshuffle the Friday before it.
+    const pinnedIntoWeekend = (id: string) =>
+      weekendAfterFriday.some(d => scheduled(d) && isPinnedOn(id, d))
+    const pinnedOnFollowingMonday = (id: string) =>
+      !!mondayAfterBlock && isoWeekday(mondayAfterBlock) === 1
+      && scheduled(mondayAfterBlock) && isPinnedOn(id, mondayAfterBlock)
     type Candidate = { id: string; relaxed: number; relaxedKind: 'monday' | 'friday' | null; cost: number; total: number; scarce: number; last: string; consecutive: number }
     const compare = (a: Candidate, b: Candidate) => a.relaxed - b.relaxed || a.cost - b.cost || a.total - b.total || a.scarce - b.scarce || cmp(a.last, b.last) || a.consecutive - b.consecutive || tieRank.get(a.id)! - tieRank.get(b.id)!
     const rank = (id: string): Candidate => {
       const e = ledger[id] ?? zeroEntry(id)
       // At most one exclusion is ever in force: a Monday is never a weekend day.
-      const mondayAfterWeekend = wd === 1 && (e.last_weekend_date === addDays(date, -1) || e.last_weekend_date === addDays(date, -2))
-      const fridayIntoWeekend = stoodWeekendFriday(id)
+      const mondayAfterWeekend = (wd === 1 && (e.last_weekend_date === addDays(date, -1) || e.last_weekend_date === addDays(date, -2)))
+        || pinnedOnFollowingMonday(id)
+      const fridayIntoWeekend = stoodWeekendFriday(id) || pinnedIntoWeekend(id)
       return {
         id, relaxed: mondayAfterWeekend || fridayIntoWeekend ? 1 : 0,
         relaxedKind: mondayAfterWeekend ? 'monday' as const : fridayIntoWeekend ? 'friday' as const : null,
