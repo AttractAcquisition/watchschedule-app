@@ -533,6 +533,8 @@ export type Database = {
           horizon_weeks: number
           id: string
           is_current: boolean
+          is_historical: boolean
+          restored_from: string | null
           rota_snapshot: Json | null
           start_date: string
           vessel_id: string
@@ -545,6 +547,8 @@ export type Database = {
           horizon_weeks: number
           id?: string
           is_current?: boolean
+          is_historical?: boolean
+          restored_from?: string | null
           rota_snapshot?: Json | null
           start_date: string
           vessel_id: string
@@ -557,6 +561,8 @@ export type Database = {
           horizon_weeks?: number
           id?: string
           is_current?: boolean
+          is_historical?: boolean
+          restored_from?: string | null
           rota_snapshot?: Json | null
           start_date?: string
           vessel_id?: string
@@ -688,6 +694,7 @@ export type Database = {
         Row: {
           created_at: string
           crew_change_warning_dismissed_at: string | null
+          calendar_cleared_at: string | null
           fairness_reset_at: string | null
           id: string
           length_m: number | null
@@ -702,6 +709,7 @@ export type Database = {
         Insert: {
           created_at?: string
           crew_change_warning_dismissed_at?: string | null
+          calendar_cleared_at?: string | null
           fairness_reset_at?: string | null
           id?: string
           length_m?: number | null
@@ -716,6 +724,7 @@ export type Database = {
         Update: {
           created_at?: string
           crew_change_warning_dismissed_at?: string | null
+          calendar_cleared_at?: string | null
           fairness_reset_at?: string | null
           id?: string
           length_m?: number | null

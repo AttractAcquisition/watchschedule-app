@@ -18,6 +18,7 @@ import { UpgradePlan } from './UpgradePlan'
 import { VesselIdentityForm } from './VesselIdentityForm'
 import { AccountProfileForm } from './AccountProfileForm'
 import { FairnessReset } from './FairnessReset'
+import { CalendarReset } from './CalendarReset'
 import { laneMaxForTier, type Tier } from './watchSettings'
 
 type SettingsTab = 'crew' | 'watch' | 'exceptions' | 'account' | 'subscription'
@@ -64,7 +65,7 @@ export default function Settings() {
   const { data: vesselNotices } = useQuery({
     queryKey: ['vessel_notices', vesselId],
     enabled: !!vesselId,
-    queryFn: async () => (await supabase.from('vessels').select('watch_settings_reconciliation_dismissed_at').eq('id', vesselId!).maybeSingle()).data,
+    queryFn: async () => (await supabase.from('vessels').select('watch_settings_reconciliation_dismissed_at,calendar_cleared_at').eq('id', vesselId!).maybeSingle()).data,
   })
   const tier = (profile?.product_tier ?? null) as Tier | null
   const needsReconcile = !!tier && !!ws?.tier && ws.tier !== tier
@@ -212,6 +213,7 @@ export default function Settings() {
         <AccountProfileForm />
         <VesselIdentityForm />
         <FairnessReset />
+        <CalendarReset cleared={!!vesselNotices?.calendar_cleared_at} onChanged={() => queryClient.invalidateQueries({ queryKey: ['vessel_notices', vesselId] })} />
           </>}
 
       {/* Subscription */}

@@ -115,7 +115,7 @@ export default function Dashboard() {
           </div>
           {moreOpen && (
             <div role="menu" className="absolute right-0 top-full z-30 mt-ws-2 flex w-56 flex-col gap-ws-1 rounded-ws-md border border-ws-line bg-ws-steel-2 p-ws-2 shadow-ws-lg">
-              <ScheduleHistoryButton data={data} />
+              <ScheduleHistoryButton data={data} onRestored={() => setFairnessToast(true)} />
               <CopyWhatsAppButton data={data} />
               <ScheduleExportButtons hasSchedule={!!data.schedule} onPrint={() => setPrintTarget('schedule')} />
             </div>
