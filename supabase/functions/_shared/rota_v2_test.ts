@@ -73,7 +73,7 @@ Deno.test('weekend blocks use the same person, all-days availability, and global
 Deno.test('global Monday rest follows a person after moving lanes; relax only for coverage', () => {
   const base={a:{...zeroEntry('a'),last_weekend_date:'2026-09-20'},b:zeroEntry('b')}
   const p=run([crew('a'),crew('b')],[lane('new')],{base})
-  assert.equal(p.assignments[0].crew_id,'b')
+  assert.equal(p.assignments.find(a=>a.watch_date==='2026-09-21')!.crew_id,'b')
   const needed=run([crew('a'),crew('b')],[lane('new'),lane('other')],{base})
   assert.equal(needed.assignments.filter(a=>a.watch_date==='2026-09-21').length,2)
   assert.equal(needed.events.filter(e=>e.watch_date==='2026-09-21'&&e.reason_code==='constraint_relaxed_monday_exclusion').length,1)
@@ -143,7 +143,7 @@ Deno.test('history replay deduplicates and preserves global balances after regro
   const base=replayGlobal({},[a,a],[...opp,...opp])
   assert.equal(base.a.total_watches,1); assert.equal(base.a.weekday_opportunities,1)
   const p=run([crew('a'),crew('b')],[lane('regrouped')],{base})
-  assert.equal(p.assignments[0].crew_id,'b')
+  assert.equal(p.assignments.find(a=>a.watch_date==='2026-09-25')!.crew_id,'b')
   assert.equal(p.ledger.a.total_watches+p.ledger.b.total_watches,29)
   assert.equal(base.a.total_watches,1)
   assert.deepEqual(p,run([crew('a'),crew('b')],[lane('regrouped')],{base}))
@@ -188,7 +188,11 @@ Deno.test('a crew too small to rest relaxes the Friday rule rather than leaving 
     const p = run([crew('solo')], [lane('1')], { settings: { ...settings, weekend_structure } })
     assert.equal(p.gaps.length, 0)
     assert.equal(p.assignments.find(a => a.watch_date === '2026-09-26')?.crew_id, 'solo')
-    assert.equal(p.events.find(e => e.watch_date === '2026-09-26')?.reason_code, 'constraint_relaxed_friday_exclusion')
+    // Scarcity order decides the weekend first, so rule 1b — one constraint with
+    // one evaluation point — is now read off the Friday leading INTO the weekend
+    // rather than off the weekend looking back. Same violation, same single
+    // relaxation, named on the day that causes it.
+    assert.equal(p.events.find(e => e.watch_date === '2026-09-25')?.reason_code, 'constraint_relaxed_friday_exclusion')
     // The Monday rule still owns Mondays; the two never collide.
     assert.equal(p.events.find(e => e.watch_date === '2026-09-28')?.reason_code, 'constraint_relaxed_monday_exclusion')
   }
@@ -514,4 +518,75 @@ Deno.test('rule 1c never disturbs determinism', () => {
   assert.deepEqual(december({ weekdayWeeks: w }).assignments, december({ weekdayWeeks: w }).assignments)
   // an empty fact list is identical to none at all
   assert.deepEqual(december({ weekdayWeeks: [] }).assignments, a.assignments)
+})
+
+// ---------------------------------------------------------------------------
+// schedule.md §5 — scarcity order: weekend, Friday, Monday, then the rest
+// ---------------------------------------------------------------------------
+
+const vessel = (overrides = {}) => planGlobal({
+  crew: ['greta', 'elisa', 'silvio', 'sienna', 'jessica', 'alexander'].map(id => crew(id)),
+  lanes: [lane('bridge')],
+  startDate: '2026-12-01', endDate: '2026-12-31',
+  settings: { ...settings, horizon_weeks: 5, weekend_structure: 'sat_sun_block' },
+  base: {},
+  ...overrides,
+})
+
+Deno.test('scarcity order: Fridays spread instead of falling to whoever is left', () => {
+  // Filling Mon->Fri in date order let rule 1c exclude the whole pool before
+  // Friday was reached, so W_FRIDAY_SELECT had nothing to choose between and
+  // one person drew every Friday. Deciding Friday from the full pool fixes it.
+  const fridays = vessel().assignments.filter(a => isoWeekday(a.watch_date) === 5)
+  assert.equal(fridays.length, 4)
+  assert.equal(new Set(fridays.map(a => a.crew_id)).size, 4, 'four Fridays, four different people')
+  // ...and rule 1c still holds at the same time
+  assert.deepEqual(repeatWeeks(vessel()), [])
+})
+
+Deno.test('scarcity order: both neighbour rules survive being evaluated from the other side', () => {
+  const p = vessel()
+  const on = new Map(p.assignments.map(a => [a.watch_date, a.crew_id]))
+  for (const [date, id] of on) {
+    const wd = isoWeekday(date)
+    // rule 1b: nobody stands a Friday into their own weekend
+    if (wd === 5) {
+      assert.notEqual(on.get(addDays(date, 1)), id, date + ': Friday into Saturday')
+      assert.notEqual(on.get(addDays(date, 2)), id, date + ': Friday into Sunday')
+    }
+    // rule 2: nobody stands the Monday after their own weekend
+    if (wd === 1) {
+      assert.notEqual(on.get(addDays(date, -1)), id, date + ': Monday after Sunday')
+      assert.notEqual(on.get(addDays(date, -2)), id, date + ': Monday after Saturday')
+    }
+  }
+  assert.equal(p.events.filter(e => e.reason_code.startsWith('constraint_relaxed')).length, 0)
+})
+
+Deno.test('scarcity order: days are decided out of order but returned in date order', () => {
+  const p = vessel()
+  const dates = p.assignments.map(a => a.watch_date)
+  assert.deepEqual(dates, [...dates].sort(), 'assignments must read as a rota')
+  const ev = p.events.map(e => e.watch_date)
+  assert.deepEqual(ev, [...ev].sort())
+})
+
+Deno.test('scarcity order: the published ledger is built chronologically', () => {
+  // Selection runs weekend-first, so an incrementally-updated ledger would end
+  // the run with last_watch_date pointing at whichever midweek day was decided
+  // last. It is inherited as the next generation's base, so it has to be right.
+  const p = vessel()
+  for (const [id, e] of Object.entries(p.ledger)) {
+    const own = p.assignments.filter(a => a.crew_id === id).map(a => a.watch_date)
+    if (!own.length) continue
+    assert.equal(e.last_watch_date, own[own.length - 1], id + ' last_watch_date')
+    const weekends = own.filter(d => isoWeekday(d) >= 6)
+    if (weekends.length) assert.equal(e.last_weekend_date, weekends[weekends.length - 1], id + ' last_weekend_date')
+  }
+})
+
+Deno.test('scarcity order never disturbs determinism', () => {
+  assert.deepEqual(vessel().assignments, vessel().assignments)
+  assert.deepEqual(vessel().events, vessel().events)
+  assert.deepEqual(vessel().ledger, vessel().ledger)
 })
