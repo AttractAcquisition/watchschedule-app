@@ -651,3 +651,74 @@ Deno.test('Friday turn-taking changes nothing on other weekdays', () => {
   })
   assert.equal(p.assignments[0].crew_id, 'b', 'b carries far less weekday burden; Fridays are irrelevant here')
 })
+
+Deno.test('Friday: standing one sends you to the back of the queue', () => {
+  // Reported from production: Silvio on 18 AND 25 December. By the 25th every
+  // crew member was level on one cumulative Friday — three earned in December,
+  // three carried from November — so the turn count tied and `cost` decided.
+  // Silvio's smaller opportunity count made him marginally cheapest, one week
+  // after his last Friday. Counting turns is not a rota on its own.
+  // Silvio is genuinely the least-worked aboard — 8 watches against 11-13 —
+  // so the burden rate rightly favours him. That is exactly the trap: being
+  // owed a watch is not the same as being owed THIS Friday, a week after the
+  // last one.
+  const person = (id: string, weekday: number, opp: number) =>
+    ({ ...zeroEntry(id), friday_watches: 1, weekday_watches: weekday, total_watches: weekday, weekday_opportunities: opp, weekend_opportunities: 0 })
+  const base = {
+    silvio: person('silvio', 4, 24),     // cheapest by cost — and stood last Friday
+    greta: person('greta', 9, 31),
+    jessica: person('jessica', 8, 30),
+  }
+  const run = (lastFriday?: Record<string, string>) => planGlobal({
+    crew: ['silvio', 'greta', 'jessica'].map(id => crew(id)), lanes: [lane('bridge')],
+    startDate: '2026-12-25', endDate: '2026-12-25',
+    settings: { ...settings, horizon_weeks: 1, include_weekends: false }, base, lastFriday,
+  }).assignments[0].crew_id
+
+  assert.equal(run(), 'silvio', 'without a queue, cost alone hands it back to Silvio')
+  assert.notEqual(run({ silvio: '2026-12-18', greta: '2026-11-06', jessica: '2026-11-13' }), 'silvio',
+    'with a queue, the man who just stood one goes last')
+  assert.equal(run({ silvio: '2026-12-18', greta: '2026-11-06', jessica: '2026-11-13' }), 'greta',
+    'and it goes to whoever stood one longest ago')
+})
+
+Deno.test('Friday: never having stood one beats any date', () => {
+  const person = (id: string, friday: number) =>
+    ({ ...zeroEntry(id), friday_watches: friday, weekday_watches: 6, total_watches: 6, weekday_opportunities: 30, weekend_opportunities: 0 })
+  // Equal turns at zero: the one with no recorded Friday at all sorts first.
+  const base = { a: person('a', 0), b: person('b', 0) }
+  const p = planGlobal({
+    crew: ['a', 'b'].map(id => crew(id)), lanes: [lane('bridge')],
+    startDate: '2026-12-25', endDate: '2026-12-25',
+    settings: { ...settings, horizon_weeks: 1, include_weekends: false }, base,
+    lastFriday: { a: '2026-11-20' },   // b has never stood one
+  })
+  assert.equal(p.assignments[0].crew_id, 'b')
+})
+
+Deno.test('Friday: the queue never overrides whose turn it is', () => {
+  // greta is a turn behind but stood hers only last week; the COUNT still wins.
+  const person = (id: string, friday: number) =>
+    ({ ...zeroEntry(id), friday_watches: friday, weekday_watches: 6, total_watches: 6, weekday_opportunities: 30, weekend_opportunities: 0 })
+  const base = { greta: person('greta', 0), elisa: person('elisa', 2) }
+  const p = planGlobal({
+    crew: ['greta', 'elisa'].map(id => crew(id)), lanes: [lane('bridge')],
+    startDate: '2026-12-25', endDate: '2026-12-25',
+    settings: { ...settings, horizon_weeks: 1, include_weekends: false }, base,
+    lastFriday: { greta: '2026-12-18', elisa: '2026-01-02' },
+  })
+  assert.equal(p.assignments[0].crew_id, 'greta', 'turn count outranks the queue')
+})
+
+Deno.test('Friday queue changes nothing on other weekdays, and keeps determinism', () => {
+  const person = (id: string, friday: number, weekday: number) =>
+    ({ ...zeroEntry(id), friday_watches: friday, weekday_watches: weekday, total_watches: weekday, weekday_opportunities: 30, weekend_opportunities: 0 })
+  const base = { a: person('a', 0, 12), b: person('b', 5, 2) }
+  const opts = { crew: ['a', 'b'].map(id => crew(id)), lanes: [lane('bridge')],
+    startDate: '2026-12-23', endDate: '2026-12-23',
+    settings: { ...settings, horizon_weeks: 1, include_weekends: false }, base,
+    lastFriday: { a: '2026-12-18', b: '2026-01-02' } }
+  const p = planGlobal(opts)
+  assert.equal(p.assignments[0].crew_id, 'b', 'a Wednesday ignores the Friday queue entirely')
+  assert.deepEqual(planGlobal(opts).assignments, p.assignments)
+})

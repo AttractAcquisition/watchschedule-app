@@ -83,6 +83,7 @@ rather than of any one decision:
 |---|---|
 | `friday_concentration` | cumulative Friday counts differ by 2+ turns across the crew |
 | `repeated_weekday` | one crew member on the same weekday 3+ times in the window |
+| `consecutive_fridays` | the same person on two Fridays a week apart |
 | `consecutive_weekends` | the same person on two weekend blocks running |
 
 `friday_concentration` is counted **cumulatively from the ledger**, never from

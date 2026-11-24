@@ -262,6 +262,17 @@ export function findPatterns(assignments: PlannedAssignment[], structure: string
     }
   }
 
+  // Two Fridays a week apart. The sibling of consecutive_weekends, and the
+  // shape that slipped through when turn-taking counted turns but did not
+  // queue them: with everyone level on one Friday the count tied, and the
+  // cheapest candidate took a second seven days after his first.
+  for (const id of people) {
+    const fri = byCrew.get(id)!.filter(d => isoWeekday(d) === 5).sort(cmp)
+    for (let i = 1; i < fri.length; i++) {
+      if (addDays(fri[i - 1], 7) === fri[i]) out.push({ code: 'consecutive_fridays', detail: { crew_id: id, from: fri[i - 1], to: fri[i] } })
+    }
+  }
+
   // Back-to-back weekends. The engine balances weekend COUNT over the horizon,
   // which permits two in a row so long as the total comes out even.
   const weekendLead = structure === 'fri_sat_sun_block' ? 5 : 6

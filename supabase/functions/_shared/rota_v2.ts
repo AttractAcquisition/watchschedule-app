@@ -152,7 +152,7 @@ export function globalScores(ledger: Ledger, ids: string[]) {
   }))
 }
 
-export function planGlobal(input: { startDate: string; settings: ScheduleSettings; lanes: RotaLane[]; crew: Crew[]; base: Ledger; leave?: LeaveRange[]; charters?: CharterRange[]; endDate?: string | null; pins?: EnginePin[]; retained?: { assignments: PlannedAssignment[]; opportunities: Opportunity[] }; weekdayWeeks?: string[] }) {
+export function planGlobal(input: { startDate: string; settings: ScheduleSettings; lanes: RotaLane[]; crew: Crew[]; base: Ledger; leave?: LeaveRange[]; charters?: CharterRange[]; endDate?: string | null; pins?: EnginePin[]; retained?: { assignments: PlannedAssignment[]; opportunities: Opportunity[] }; weekdayWeeks?: string[]; lastFriday?: Record<string, string> }) {
   const lanes = [...input.lanes].sort((a, b) => a.position - b.position || cmp(a.id, b.id))
   const ledger: Ledger = Object.fromEntries(Object.entries(input.base).map(([id, e]) => [id, { ...e }]))
   const end = generationEnd(input.startDate, input.settings.horizon_weeks, input.endDate)
@@ -221,6 +221,9 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
   // a window that begins or ends midweek still spaces that partial week. Those
   // are rostered facts, exactly as a pin is; see docs/fixed-watches.md.
   const weekdayWeeks = new Set<string>(input.weekdayWeeks ?? [])
+  // The Friday queue: when turn counts are level, whoever stood one longest
+  // ago goes first. Never having stood one sorts ahead of everybody.
+  const lastFriday: Record<string, string> = { ...(input.lastFriday ?? {}) }
   for (const date of orderedDates) {
     if (!scheduled(date) || covered.has(date)) continue
     const wd = isoWeekday(date)
@@ -278,8 +281,8 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
     const pinnedOnFollowingMonday = (id: string) =>
       !!mondayAfterBlock && isoWeekday(mondayAfterBlock) === 1
       && scheduled(mondayAfterBlock) && isPinnedOn(id, mondayAfterBlock)
-    type Candidate = { id: string; relaxed: number; relaxedKind: 'monday' | 'friday' | 'week' | null; fridayTurn: number; cost: number; total: number; scarce: number; last: string; consecutive: number }
-    const compare = (a: Candidate, b: Candidate) => a.relaxed - b.relaxed || a.fridayTurn - b.fridayTurn || a.cost - b.cost || a.total - b.total || a.scarce - b.scarce || cmp(a.last, b.last) || a.consecutive - b.consecutive || tieRank.get(a.id)! - tieRank.get(b.id)!
+    type Candidate = { id: string; relaxed: number; relaxedKind: 'monday' | 'friday' | 'week' | null; fridayTurn: number; fridayQueue: string; cost: number; total: number; scarce: number; last: string; consecutive: number }
+    const compare = (a: Candidate, b: Candidate) => a.relaxed - b.relaxed || a.fridayTurn - b.fridayTurn || cmp(a.fridayQueue, b.fridayQueue) || a.cost - b.cost || a.total - b.total || a.scarce - b.scarce || cmp(a.last, b.last) || a.consecutive - b.consecutive || tieRank.get(a.id)! - tieRank.get(b.id)!
     const rank = (id: string): Candidate => {
       const e = ledger[id] ?? zeroEntry(id)
       // At most one exclusion is ever in force: a Monday is never a weekend day.
@@ -301,6 +304,10 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
         // Cumulative, so a turn taken last month still counts this month.
         // Zero on every other day, so no other decision is affected.
         fridayTurn: wd === 5 ? (ledger[id] ?? zeroEntry(id)).friday_watches : 0,
+        // Equal turns -> back of the queue. Silvio stood 18 Dec, so on 25 Dec
+        // he sorts behind everyone whose last Friday is older, which is what
+        // stopped two Fridays running. Empty = never stood one = first.
+        fridayQueue: wd === 5 ? (lastFriday[id] ?? '') : '',
         relaxed: mondayAfterWeekend || fridayIntoWeekend || weekdayRepeat ? 1 : 0,
         relaxedKind: mondayAfterWeekend ? 'monday' as const : fridayIntoWeekend ? 'friday' as const : weekdayRepeat ? 'week' as const : null,
         cost: days.reduce((sum, d) => sum + selectionCost(e, d, isoWeekday(d) >= 6 ? 'weekend' : 'weekday', isoWeekday(d) === 5), 0),
@@ -358,6 +365,7 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
           const a: PlannedAssignment = { lane_id: lane.id, crew_id: c.id, watch_date: d, day_type: isoWeekday(d) >= 6 ? 'weekend' : 'weekday', is_friday: isoWeekday(d) === 5 }
           assignments.push(a)
           stood.add(c.id + ':' + d)
+          if (a.is_friday && (!lastFriday[c.id] || d > lastFriday[c.id])) lastFriday[c.id] = d
           for (const w of blockWeeks) weekdayWeeks.add(c.id + ':' + w)
           updateLedger({ id: lane.id, kind: 'dept', department: null, pool: blockPools[i] }, c.id, d, a.day_type, a.is_friday, ledger)
         }

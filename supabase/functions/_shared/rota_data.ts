@@ -168,7 +168,18 @@ export async function loadGlobalBase(admin: Admin, vesselId: string, before: str
   for (const a of [...imported.assignments, ...past.assignments, ...retained.assignments]) {
     if (isoWeekday(a.watch_date) < 6) weekdayWeeks.add(a.crew_id + ':' + isoWeekKey(a.watch_date))
   }
-  return { ledger, estimated, legacySnapshots, stoodBefore, retained, weekdayWeeks: [...weekdayWeeks].sort() }
+  // fairness.md Step B — a rota sends you to the BACK of the queue once you
+  // have stood your turn. Counting turns alone is not enough: when everyone is
+  // level the count ties, and whoever is marginally cheapest can take two
+  // Fridays running. The date of each crew member's last Friday breaks that
+  // tie, so the queue orders itself. Taken from history, then carried forward
+  // by the run. A crew member who has never stood one sorts first.
+  const lastFriday: Record<string, string> = {}
+  for (const a of [...imported.assignments, ...past.assignments, ...retained.assignments]) {
+    if (isoWeekday(a.watch_date) !== 5) continue
+    if (!lastFriday[a.crew_id] || a.watch_date > lastFriday[a.crew_id]) lastFriday[a.crew_id] = a.watch_date
+  }
+  return { ledger, estimated, legacySnapshots, stoodBefore, retained, weekdayWeeks: [...weekdayWeeks].sort(), lastFriday }
 }
 
 /**
