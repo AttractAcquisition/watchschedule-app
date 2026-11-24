@@ -213,14 +213,14 @@ export function auditRota(input: {
     || cmp(x.from.watch_date, y.from.watch_date) || cmp(x.to.watch_date, y.to.watch_date)
     || cmp(x.from.crew_id, y.from.crew_id) || cmp(x.to.crew_id, y.to.crew_id))
 
-  return { spread, improvable: improvable.slice(0, 20), patterns: findPatterns(input.assignments, structure), considered }
+  return { spread, improvable: improvable.slice(0, 20), patterns: findPatterns(input.assignments, structure, input.ledger), considered }
 }
 
 /**
  * Shapes a captain notices that no per-day rule can see, because each is a
  * property of the finished month rather than of any one decision.
  */
-export function findPatterns(assignments: PlannedAssignment[], structure: string): AuditPattern[] {
+export function findPatterns(assignments: PlannedAssignment[], structure: string, ledger?: Ledger): AuditPattern[] {
   const out: AuditPattern[] = []
   const byCrew = new Map<string, string[]>()
   for (const a of [...assignments].sort((x, y) => cmp(x.watch_date, y.watch_date))) {
@@ -228,18 +228,26 @@ export function findPatterns(assignments: PlannedAssignment[], structure: string
   }
   const people = [...byCrew.keys()].sort(cmp)
 
-  // Fridays landing on fewer people than there are Fridays to go round.
+  // Fridays landing unevenly. Counted CUMULATIVELY from the ledger, never from
+  // this window alone: a crew member who stood their Friday last month has had
+  // their turn, and judging the window in isolation reports a concentration
+  // that does not exist. Eight Fridays across six people is 2,2,1,1,1,1 — the
+  // only distribution there is — and must not be flagged as a defect.
   const fridays = assignments.filter(a => isoWeekday(a.watch_date) === 5)
   if (fridays.length > 1) {
-    const count = new Map<string, number>()
-    for (const f of fridays) count.set(f.crew_id, (count.get(f.crew_id) ?? 0) + 1)
-    const none = people.filter(p => !count.has(p))
-    const doubled = [...count].filter(([, c]) => c > 1).sort((a, b) => b[1] - a[1] || cmp(a[0], b[0]))
-    if (doubled.length && none.length) {
+    const windowCount = new Map<string, number>()
+    for (const f of fridays) windowCount.set(f.crew_id, (windowCount.get(f.crew_id) ?? 0) + 1)
+    const cumulative = new Map<string, number>()
+    for (const id of people) cumulative.set(id, ledger?.[id]?.friday_watches ?? windowCount.get(id) ?? 0)
+    const counts = [...cumulative.values()]
+    const lo = Math.min(...counts), hi = Math.max(...counts)
+    // One apart is unavoidable whenever the Fridays do not divide evenly.
+    if (hi - lo >= 2) {
       out.push({ code: 'friday_concentration', detail: {
-        fridays: fridays.length,
-        repeated: doubled.map(([crew_id, n]) => ({ crew_id, fridays: n })),
-        none: none,
+        fridays: fridays.length, basis: ledger ? 'cumulative' : 'window',
+        ahead: [...cumulative].filter(([, c]) => c === hi).map(([crew_id]) => crew_id).sort(cmp),
+        behind: [...cumulative].filter(([, c]) => c === lo).map(([crew_id]) => crew_id).sort(cmp),
+        spread: hi - lo,
       } })
     }
   }

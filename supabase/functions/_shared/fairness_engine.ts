@@ -124,10 +124,17 @@ export function selectionCost(e: LedgerEntry, date: string, dayType: DayType, is
   // same number of Fridays (the `total` tie-break, fairness.md section 7).
   // Still a RATE, so a part-time or newly joined crew member is not dealt
   // Friday after Friday: one Friday over few opportunities is expensive.
-  if (isFriday) {
-    const costFriday = e.friday_watches * W_FRIDAY_SELECT + consec + recency
-    return e.weekday_opportunities > 0 ? costFriday / e.weekday_opportunities : Infinity
-  }
+  // Scoring a Friday as friday_watches/weekday_opportunities made it a RATE,
+  // and a rate is the wrong shape for a rota: dividing by opportunities hands
+  // extra Fridays to long-serving crew, because their denominator is larger.
+  // With everyone level on 1 Friday it picked the person with the most
+  // opportunities (2.0/36) over the person with the fewest (2.0/18), even
+  // though the winner was already the most-worked crew member aboard — general
+  // weekday burden had been taken out of the Friday decision entirely.
+  // Turn-taking is a COUNT, and it now lives in the candidate comparator as a
+  // key ranked above cost (fairness.md section 7). This function therefore
+  // scores a Friday exactly as it scores any weekday: whoever is carrying least
+  // overall, which is what decides once the counts are level.
   const baseWeekday = (e.weekday_watches - e.friday_watches) * W_WEEKDAY + e.friday_watches * W_FRIDAY
   const costOld = baseWeekday + consec + recency
   return e.weekday_opportunities > 0 ? costOld / e.weekday_opportunities : Infinity

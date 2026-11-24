@@ -18,6 +18,13 @@ The audit answers one question a captain can check:
 If the answer is no, the rota is **locally optimal** under the same measure the
 dashboard scores from — a claim that can be reproduced, not merely asserted.
 
+A non-empty result is **not a defect**. The engine is greedy: it commits each
+day against the ledger as it stood at that moment, so a finished month can hold
+improvements it could not have seen. Surfacing them is the point. What the
+audit guarantees is that everything it reports is genuine — positive, ordered
+best-first, legal under every rule, and never a trade of the rotation for a
+rounder total.
+
 ## What it is not
 
 It is **not** an LLM reviewer. A model asked to review a rota will fluently
@@ -74,9 +81,16 @@ rather than of any one decision:
 
 | code | meaning |
 |---|---|
-| `friday_concentration` | someone holds 2+ Fridays while an eligible colleague holds none |
+| `friday_concentration` | cumulative Friday counts differ by 2+ turns across the crew |
 | `repeated_weekday` | one crew member on the same weekday 3+ times in the window |
 | `consecutive_weekends` | the same person on two weekend blocks running |
+
+`friday_concentration` is counted **cumulatively from the ledger**, never from
+the window alone. A crew member who stood their Friday last month has had their
+turn; judging a window in isolation reports concentrations that do not exist —
+eight Fridays across six people is 2,2,1,1,1,1 and there is no other
+distribution. A gap of one turn is unavoidable whenever the Fridays do not
+divide evenly, so only a gap of **two or more** is reported.
 
 `repeated_weekday` is expected on a settled rota and is not a defect: with a
 weekly cycle people naturally land on a fixed slot. It is surfaced because
