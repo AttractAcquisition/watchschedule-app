@@ -980,6 +980,15 @@ export type Database = {
         Returns: undefined
       }
       reset_fairness_history: { Args: never; Returns: undefined }
+      set_generation_window: {
+        Args: {
+          p_mode: Database["public"]["Enums"]["generation_mode"]
+          p_start: string | null
+          p_end: string | null
+          p_horizon_weeks: number
+        }
+        Returns: undefined
+      }
       save_watch_configuration: {
         Args: { p_lanes: Json; p_settings: Json }
         Returns: undefined

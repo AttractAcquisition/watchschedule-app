@@ -9,6 +9,7 @@ import type { DashboardData, Lane } from './useDashboardData'
 
 import { fairnessGroups } from './fairnessGroups'
 import { scheduledDates } from './scheduledDates'
+import { periodDates } from './printPeriod'
 const laneTitle = (l: Lane) => l.label
 
 function PrintHeader({ vesselName, eyebrow, range, tier }: { vesselName: string; eyebrow: string; range?: string; tier?: string }) {
@@ -36,12 +37,25 @@ function PrintFooter() {
   )
 }
 
-export function SchedulePrintDoc({ data, vesselName, tier }: { data: DashboardData; vesselName: string; tier?: string }) {
+export function SchedulePrintDoc({ data, vesselName, tier, period }: {
+  data: DashboardData
+  vesselName: string
+  tier?: string
+  /**
+   * The span to print. Omitted, it prints the current schedule, as before.
+   * Given, it prints that period from the canonical rota the calendar shows —
+   * which is how any month becomes printable, not only the one just generated.
+   */
+  period?: { start: string; end: string }
+}) {
   const { schedule, assignments, lanes, crewById, charters } = data
-  const range = schedule ? dateRangeLabel(schedule.start_date, schedule.end_date) : undefined
+  const span = period ?? (schedule ? { start: schedule.start_date, end: schedule.end_date } : null)
+  const range = span ? dateRangeLabel(span.start, span.end) : undefined
   const isPaused = (date: string) => charters.some((c) => date >= c.start_date && date <= c.end_date)
   const liveAssignments = assignments.filter((a) => !isPaused(a.watch_date))
-  const dates = scheduledDates(data)
+  const dates = period
+    ? periodDates(data.scheduledDates, assignments, period.start, period.end).filter((d) => !isPaused(d))
+    : scheduledDates(data)
   const scheduled = new Set(dates)
   const byKey = new Map(liveAssignments.map((a) => [`${a.lane_id}:${a.watch_date}`, a.crew_id]))
   const who = (laneId: string, date: string) => {
@@ -55,7 +69,10 @@ export function SchedulePrintDoc({ data, vesselName, tier }: { data: DashboardDa
   return (
     <article className="min-h-screen bg-ws-print-bg p-ws-6 font-ui text-ws-print-ink">
       <PrintHeader vesselName={vesselName} eyebrow="Watch schedule" range={range} tier={tier} />
-      <table className="w-full border-collapse text-ws-sm">
+      {dates.length === 0 && (
+        <p className="text-ws-sm text-ws-print-muted">No watches were rostered in this period.</p>
+      )}
+      {dates.length > 0 && <table className="w-full border-collapse text-ws-sm">
         <thead>
           <tr>
             <th className="border border-ws-print-line bg-ws-print-weekend px-ws-2 py-ws-1 text-left font-mono text-ws-xs uppercase tracking-ws-wide text-ws-print-muted">Date</th>
@@ -76,12 +93,12 @@ export function SchedulePrintDoc({ data, vesselName, tier }: { data: DashboardDa
             </tr>
           ))}
         </tbody>
-      </table>
-      <div className="mt-ws-3 flex flex-wrap gap-ws-4 font-mono text-ws-xs text-ws-print-muted">
+      </table>}
+      {dates.length > 0 && <div className="mt-ws-3 flex flex-wrap gap-ws-4 font-mono text-ws-xs text-ws-print-muted">
         <span><span className="font-semibold text-ws-print-gold">|</span> Friday (weighted)</span>
         <span><span className="inline-block h-3 w-3 border border-ws-print-line bg-ws-print-weekend align-middle" /> Weekend (separate rotation)</span>
         <span>⚠ gap — no eligible crew</span>
-      </div>
+      </div>}
       <PrintFooter />
     </article>
   )
