@@ -63,18 +63,32 @@ export interface RotaPatch {
    * import-watch-history to price a pending historical row before writing it.
    */
   versions?: (rows: ScheduleVersion[]) => ScheduleVersion[]
+  /**
+   * Replay as if the calendar-clear marker were already lifted. A restore
+   * clears the marker in the same transaction that writes the scores, so the
+   * replay must price the rota it is about to produce — not the empty one the
+   * marker currently describes. Without this the caller would have to null the
+   * marker in the database first and put it back afterwards, which loses it
+   * outright if the call fails in between.
+   */
+  liftCalendarClear?: boolean
 }
 
 export async function loadGlobalBase(admin: Admin, vesselId: string, before: string, inputs: Awaited<ReturnType<typeof loadRotaInputs>>, patch?: RotaPatch, windowEnd?: string) {
   const [scheduleRows, assignmentRows, seedResult, vesselResult] = await Promise.all([
     readAll(admin, 'schedules', vesselId), readAll(admin, 'watch_assignments', vesselId),
     admin.from('rota_seed').select('*').eq('vessel_id', vesselId).maybeSingle(),
-    admin.from('vessels').select('fairness_reset_at').eq('id', vesselId).single(),
+    admin.from('vessels').select('fairness_reset_at,calendar_cleared_at').eq('id', vesselId).single(),
   ])
   if (seedResult.error) throw seedResult.error
   if (vesselResult.error) throw vesselResult.error
   const seed = seedResult.data
-  const resetAt = vesselResult.data.fairness_reset_at as string | null
+  // Two markers can hide earlier generations: a fairness reset (scores only,
+  // the calendar keeps its watches) and a calendar clear (both). The later one
+  // wins — each only ever moves the cut-off forward.
+  const fairnessResetAt = vesselResult.data.fairness_reset_at as string | null
+  const clearedAt = patch?.liftCalendarClear ? null : vesselResult.data.calendar_cleared_at as string | null
+  const resetAt = [fairnessResetAt, clearedAt].filter(Boolean).sort().pop() ?? null
   const stored = (scheduleRows as (ScheduleVersion & { rota_snapshot: { lanes?: RotaLane[]; opportunities?: Opportunity[]; history_estimated?: boolean } | null })[])
     .filter(s => !resetAt || s.generated_at > resetAt)
   const versions = patch?.versions ? patch.versions(stored) as typeof stored : stored
