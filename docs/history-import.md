@@ -51,6 +51,25 @@ Imported days carry an opportunity only for the person recorded. An image or a C
 
 On success the dashboard raises the same "Fairness score has been updated" toast as a manual override.
 
+## Recording one past day straight from the calendar (24 November 2026)
+
+A past day **no generation covers** is clickable on the calendar and opens `RecordPastWatch` — pick who stood it, done. It posts a single record to this same function, so there is one path into the rota's past, whether it arrives as a CSV, a typed table, or one click.
+
+This is the sibling of the manual override, and the split is deliberate:
+
+| | `AssignmentEditor` | `RecordPastWatch` |
+|---|---|---|
+| when | a generation planned that day | no generation covers that day |
+| what it means | **change** who stood a planned watch | **record** a watch that was stood |
+| rules | the engine's exclusions, each needing consent | none — there is no plan to break |
+| path | `override-assignment` | `import-watch-history` |
+
+`Dashboard` picks between them on whether the date is in `scheduledDates`.
+
+**Future days stay untouchable.** The generator owns what is still to come, so only days before today are recordable; the server enforces it too, rejecting any record dated today or later.
+
+This was the other half of the 24 November editing change. Days owned by a *superseded* generation became editable then; days owned by **nothing** — before the vessel's first schedule, or after a calendar clear — had no route but the bulk button until now.
+
 ## Tiers
 
 Open to **all tiers, Solo included** (captain's decision, 24 November 2026). `seed-fairness`'s image import keeps its existing Dual/Triple gate; correcting your own history is not a paid feature.
