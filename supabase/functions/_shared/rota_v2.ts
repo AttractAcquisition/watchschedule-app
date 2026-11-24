@@ -110,16 +110,20 @@ export function replayGlobal(seed: Ledger, assignments: PlannedAssignment[], opp
 //
 // SEAM: app/src/lib/canonicalRota.ts implements the same rule for the calendar.
 // Change one, change both, or the calendar and the scores will disagree.
-export function canonicalHistory(versions: ScheduleVersion[], assignments: HistoricalAssignment[], opportunities: HistoricalOpportunity[], before: string, after?: string) {
+export function versionOwner(versions: ScheduleVersion[]): (date: string) => string | null {
   const ordered = [...versions].sort((a, b) => cmp(b.generated_at, a.generated_at) || cmp(b.id, a.id))
   const cache = new Map<string, string | null>()
-  const winner = (date: string) => {
+  return (date: string) => {
     if (!cache.has(date)) {
       const v = ordered.find(s => s.start_date <= date && date <= s.end_date)
       cache.set(date, v ? v.id : null)
     }
-    return cache.get(date)
+    return cache.get(date)!
   }
+}
+
+export function canonicalHistory(versions: ScheduleVersion[], assignments: HistoricalAssignment[], opportunities: HistoricalOpportunity[], before: string, after?: string) {
+  const winner = versionOwner(versions)
   const owns = (r: { watch_date: string; schedule_id: string }) => winner(r.watch_date) === r.schedule_id
   // `after` is the end of the window a run is about to plan. Canonical days
   // BEYOND it belong to an older generation that still covers them: retained,

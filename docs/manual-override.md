@@ -22,7 +22,17 @@ The engine's hard exclusions remain hard: the captain may break one only by ackn
 | `consecutive_weekends` | caution | the weekend either side is theirs as well — priced by the engine, not forbidden by it. |
 | `long_consecutive_run` | caution | four or more scheduled days in a row. |
 
-One thing is **refused outright and cannot be consented away**: `already_on_watch` — one person, one watch a day, the invariant `publish_rota` enforces for generated rotas and `apply_manual_override` re-checks after writing. Days outside the current schedule, days it never scheduled, and charter-paused days are not editable at all.
+One thing is **refused outright and cannot be consented away**: `already_on_watch` — one person, one watch a day, the invariant `publish_rota` enforces for generated rotas and `apply_manual_override` re-checks after writing. Days no generation ever scheduled, and charter-paused days, are not editable at all.
+
+### Any day a generation covers, not just the current one (24 November 2026)
+
+The editor originally refused every day outside the **current** schedule. That was too narrow: once a new window is generated, the days before it are still owned by a perfectly good superseded generation, they still count towards fairness, and the captain may well need to correct who actually stood one of them. On a vessel whose current schedule starts mid-month, the first half of that month was uneditable despite being fully rostered.
+
+The day is now edited on **the generation that owns it**, resolved by the same per-date winner rule as the fairness replay (`_shared/rota_v2.ts` → `versionOwner`, extracted so the override and the replay cannot diverge). The guard moved rather than disappeared: migration `20261124010000` drops the `is_current` requirement from `apply_manual_override` and checks instead that the days fall inside the range of the schedule being amended, and that the schedule belongs to the vessel.
+
+A schedule generated before a lane reconfiguration carries lane ids the live rota no longer has, because `save_watch_configuration` mints a new uuid when a lane is added. The browser names a lane from the calendar's current rows, so the server maps it onto that version's own lane by **position** when the id does not match (`resolveVersionLane`, pure and unit-tested). A lane the version never had resolves to nothing and the edit is refused, rather than landing on the wrong lane.
+
+A day **no** generation covers still cannot be edited here — there is no version to amend. Those are the business of "Upload past watches".
 
 A weekend block has one watchkeeper by construction, so a change to any of its days moves **all** of them. The block is derived exactly as `planGlobal` derives it, from the structure recorded in that schedule's own snapshot (`rota_snapshot.weekend_structure`) — never from today's settings, which may have moved on.
 
@@ -39,7 +49,7 @@ Tests prove the property this rests on: replaying a published rota reproduces th
 ## Seams
 
 - **Edge Function `override-assignment`** (the 9th; `supabase/functions/override-assignment/`). Two modes on one contract, so the browser holds no copy of the rules:
-  - `{ watch_date, lane_id }` → `{ days, current_crew_id, options: [{ crew_id, full_name, in_lane, violations, blockers }] }`
+  - `{ watch_date, lane_id }` → `{ days, current_crew_id, options: [{ crew_id, full_name, in_lane, violations, blockers }] }`, resolved against the generation owning `watch_date`
   - `{ watch_date, lane_id, crew_id | null, acknowledge }` → `{ applied, fairness }`, or `{ requires_consent, violations }`, or `{ blocked, blockers }` — all **200**: consent and refusal are answers, not transport failures.
   Re-derives `vessel_id` from the JWT like every other function; requires an active subscription.
 - **`_shared/manual_override.ts`** — pure predicates: `blockFor` (which days move together) and `checkOverride` (what a selection breaks). No I/O, no writes.

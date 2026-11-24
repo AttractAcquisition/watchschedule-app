@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { blockFor, checkOverride, type OverrideCrew } from './manual_override.ts'
+import { blockFor, checkOverride, type OverrideCrew, resolveVersionLane } from './manual_override.ts'
 import { planGlobal, replayGlobal, globalScores, type RotaLane } from './rota_v2.ts'
 import type { Crew, LeaveRange, PlannedAssignment, ScheduleSettings, WeekendStructure } from './schedule_engine.ts'
 
@@ -131,4 +131,26 @@ Deno.test('an override moves exactly one watch, and the scores follow it', () =>
   assert.notDeepEqual(now, before)
   // And the swap is reversible: putting it back restores the published scores.
   assert.deepEqual(globalScores(replayGlobal({}, plan.assignments, plan.opportunities), ids), before)
+})
+
+// 24 Nov 2026 — editing a day an older generation owns. That generation may
+// predate a lane reconfiguration, so its lane ids differ from the calendar's.
+Deno.test('a lane request resolves to the same lane in the version being edited', () => {
+  const current = [{ id: 'fresh', position: 1 }, { id: 'second', position: 2 }]
+  const version = [{ id: 'retired', position: 1 }, { id: 'retired-2', position: 2 }]
+  assert.equal(resolveVersionLane(version, current, 'fresh')!.id, 'retired')
+  assert.equal(resolveVersionLane(version, current, 'second')!.id, 'retired-2')
+})
+
+Deno.test('an exact lane id always wins over the position fallback', () => {
+  const current = [{ id: 'shared', position: 2 }]
+  const version = [{ id: 'other', position: 2 }, { id: 'shared', position: 1 }]
+  assert.equal(resolveVersionLane(version, current, 'shared')!.id, 'shared')
+})
+
+Deno.test('a lane the version never had resolves to nothing, never to the wrong one', () => {
+  const current = [{ id: 'third', position: 3 }]
+  const version = [{ id: 'only', position: 1 }]
+  assert.equal(resolveVersionLane(version, current, 'third'), null)
+  assert.equal(resolveVersionLane(version, current, 'unknown-id'), null)
 })

@@ -11,9 +11,9 @@
 // numbers are the ordinary replay (rota_data + rota_v2), not a second formula.
 import { handlePreflight, json } from '../_shared/cors.ts'
 import { rotaContext, loadRotaInputs, loadGlobalBase, validISODate } from '../_shared/rota_data.ts'
-import { canonicalHistory, globalScores, type HistoricalAssignment, type RotaLane, type ScheduleVersion } from '../_shared/rota_v2.ts'
+import { canonicalHistory, globalScores, versionOwner, type HistoricalAssignment, type RotaLane, type ScheduleVersion } from '../_shared/rota_v2.ts'
 import { isoWeekday } from '../_shared/fairness_engine.ts'
-import { blockFor, checkOverride, FAR_FUTURE, type OverrideCrew, type Violation } from '../_shared/manual_override.ts'
+import { blockFor, checkOverride, resolveVersionLane, FAR_FUTURE, type OverrideCrew, type Violation } from '../_shared/manual_override.ts'
 import type { WeekendStructure } from '../_shared/schedule_engine.ts'
 
 const addDays = (date: string, n: number) => {
@@ -41,18 +41,34 @@ Deno.serve(async req => {
     const laneId = body.lane_id ?? ''
     if (!validISODate(watchDate) || !UUID.test(laneId)) throw new Error('Pick a day and a watch lane to change.')
 
-    const [{ data: schedule, error: se }, { data: settings, error: we }] = await Promise.all([
-      admin.from('schedules').select('id,start_date,end_date,rota_snapshot').eq('vessel_id', vesselId).eq('is_current', true).maybeSingle(),
+    // The day is edited on the generation that OWNS it, not merely the current
+    // one (docs/manual-override.md, 24 Nov 2026). A superseded schedule still
+    // covering last week is still the rota the crew worked, and correcting it
+    // must be possible. Same per-date winner rule as the fairness replay.
+    const [{ data: scheduleRowsAll, error: se }, { data: settings, error: we }] = await Promise.all([
+      admin.from('schedules').select('id,start_date,end_date,generated_at,rota_snapshot,is_current').eq('vessel_id', vesselId),
       admin.from('watch_settings').select('weekend_structure').eq('vessel_id', vesselId).maybeSingle(),
     ])
     if (se) throw se
     if (we) throw we
-    if (!schedule) throw new Error('Generate a schedule before changing it.')
+    const allVersions = (scheduleRowsAll ?? []) as (ScheduleVersion & { rota_snapshot: unknown; is_current: boolean })[]
+    if (!allVersions.length) throw new Error('Generate a schedule before changing it.')
+    const ownerId = versionOwner(allVersions)(watchDate)
+    const schedule = allVersions.find(v => v.id === ownerId)
+    if (!schedule) throw new Error('No watch schedule covers that day yet. Use "Upload past watches" to record it.')
 
     const inputs = await loadRotaInputs(admin, vesselId)
     const snapshot = (schedule.rota_snapshot ?? {}) as Snapshot
-    const lane = (snapshot.lanes?.length ? snapshot.lanes : inputs.lanes).find(l => l.id === laneId)
-    if (!lane) throw new Error('That watch lane is not part of the current schedule.')
+    // The browser names a lane from the calendar's CURRENT rows. A schedule
+    // generated before a lane reconfiguration carries different lane ids
+    // (`save_watch_configuration` mints a new uuid when a lane is added), so
+    // fall back to the lane holding the same POSITION in that schedule's own
+    // snapshot — the same mapping the calendar uses to display it.
+    const versionLanes = snapshot.lanes?.length ? snapshot.lanes : inputs.lanes
+    const lane = resolveVersionLane(versionLanes, inputs.lanes, laneId)
+    if (!lane) throw new Error('That watch lane is not part of the schedule covering that day.')
+    // Everything downstream writes against the lane as THAT schedule knows it.
+    const targetLaneId = lane.id
 
     const { data: scheduleRows, error: ae } = await admin.from('watch_assignments')
       .select('schedule_id,lane_id,crew_id,watch_date').eq('schedule_id', schedule.id)
@@ -77,15 +93,14 @@ Deno.serve(async req => {
     // minus the rows this change replaces.
     const from = addDays(days[0], -9)
     const to = addDays(days[days.length - 1], 9)
-    const [near, versions, seed] = await Promise.all([
+    const [near, seed] = await Promise.all([
       admin.from('watch_assignments').select('schedule_id,lane_id,crew_id,watch_date').eq('vessel_id', vesselId).gte('watch_date', from).lte('watch_date', to),
-      admin.from('schedules').select('id,start_date,end_date,generated_at').eq('vessel_id', vesselId),
       admin.from('rota_seed').select('records').eq('vessel_id', vesselId).maybeSingle(),
     ])
-    for (const r of [near, versions, seed]) if (r.error) throw r.error
-    const replaced = new Set(days.map(d => `${laneId}:${d}`))
+    for (const r of [near, seed]) if (r.error) throw r.error
+    const replaced = new Set(days.map(d => `${targetLaneId}:${d}`))
     const canonical = canonicalHistory(
-      (versions.data ?? []) as ScheduleVersion[], (near.data ?? []) as HistoricalAssignment[], [], FAR_FUTURE,
+      allVersions as ScheduleVersion[], (near.data ?? []) as HistoricalAssignment[], [], FAR_FUTURE,
     ).assignments.filter(a => !(a.schedule_id === schedule.id && replaced.has(`${a.lane_id}:${a.watch_date}`)))
     const standing = new Set(canonical.map(a => `${a.crew_id}:${a.watch_date}`))
     for (const r of (seed.data?.records ?? []) as { crew_id: string; watch_date: string; assigned: boolean }[]) {
@@ -93,13 +108,13 @@ Deno.serve(async req => {
     }
     const stood = (crewId: string, date: string) => standing.has(`${crewId}:${date}`)
 
-    const current = scheduleRows.find(r => r.lane_id === laneId && r.watch_date === days[0])?.crew_id as string | undefined
+    const current = scheduleRows.find(r => r.lane_id === targetLaneId && r.watch_date === days[0])?.crew_id as string | undefined
     const check = (crew: OverrideCrew) => checkOverride({
       crew, days, laneDepartments: lane.departments, laneLabel: lane.label, structure,
       leave: inputs.leave, scheduled, stood,
     })
     const context = {
-      schedule_id: schedule.id, lane_id: laneId, lane_label: lane.label, lane_departments: lane.departments,
+      schedule_id: schedule.id, lane_id: targetLaneId, lane_label: lane.label, lane_departments: lane.departments,
       days, current_crew_id: current ?? null,
     }
 
@@ -140,7 +155,7 @@ Deno.serve(async req => {
     // for those days (they were available to stand them).
     const assignments = crewId
       ? days.map(d => ({
-          schedule_id: schedule.id, lane_id: laneId, crew_id: crewId, watch_date: d,
+          schedule_id: schedule.id, lane_id: targetLaneId, crew_id: crewId, watch_date: d,
           day_type: isoWeekday(d) >= 6 ? 'weekend' as const : 'weekday' as const, is_friday: isoWeekday(d) === 5,
         }))
       : []
@@ -163,7 +178,7 @@ Deno.serve(async req => {
     const { error: applyError } = await admin.rpc('apply_manual_override', {
       p_vessel: vesselId, p_revision: revision,
       p_plan: {
-        schedule_id: schedule.id, lane_id: laneId, dates: days, crew_id: crewId,
+        schedule_id: schedule.id, lane_id: targetLaneId, dates: days, crew_id: crewId,
         assignments, scores, history_estimated: patched.estimated,
         detail: {
           previous_crew_id: current ?? null, new_crew_id: crewId, block_days: days,

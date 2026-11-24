@@ -32,11 +32,11 @@ function Cell({ data, lane, date, scheduled, byKey, compact, dense, onEdit }: { 
   const isGap = !charter && !a && scheduled.has(ds) // scheduled date, no assignment -> no_eligible_crew gap
   const friday = isFriday(date)
   const weekend = isWeekend(date)
-  // Only the current schedule's own days can be changed by hand: days before a
-  // planned-ahead start are served by the superseded rota, and a paused or
-  // unscheduled day has no watch to reassign.
+  // Any day a generation covers can be changed by hand (24 Nov 2026) — the
+  // server edits whichever version owns it, so correcting who actually stood
+  // last week's watch is possible, not just this week's. A paused or
+  // never-scheduled day still has no watch to reassign.
   const editable = !!onEdit && !charter && scheduled.has(ds)
-    && !!data.schedule && ds >= data.schedule.start_date && ds <= data.schedule.end_date
 
   const base = [
     dense ? 'min-h-5 px-1 py-px text-center' : compact ? 'min-h-[1.5rem] px-ws-1 py-ws-1 text-center' : 'min-h-[2.75rem] px-ws-2 py-ws-2',
@@ -50,8 +50,9 @@ function Cell({ data, lane, date, scheduled, byKey, compact, dense, onEdit }: { 
 
   const resumes = charter ? format(addDays(parseISO(charter.end_date), 1), 'd MMM') : ''
   const manual = a?.is_manual ? ' · changed by hand' : ''
+  const historical = !!data.schedule && ds < data.schedule.start_date
   const title = charter ? `${charter.label ? charter.label + ' — ' : ''}Charter · resumes ${resumes}`
-    : crew ? `${crew.full_name} · ${crew.position}${manual}${editable ? ' — click to change' : ''}`
+    : crew ? `${crew.full_name} · ${crew.position}${manual}${editable ? (historical ? ' — click to correct this past watch' : ' — click to change') : ''}`
     : isGap ? `No eligible crew — gap${editable ? ' — click to fill' : ''}` : ''
   const content = (
     <>
