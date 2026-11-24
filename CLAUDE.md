@@ -18,6 +18,8 @@
 
 > Approved 24 November 2026: **a past day no generation covers is recordable straight from the calendar** ([docs/history-import.md](docs/history-import.md)). Clicking it opens `RecordPastWatch`, which posts one record to `import-watch-history` — the same path a CSV takes. This is the sibling of `AssignmentEditor`: a planned day is **changed** under the engine's rules and consent gates, a day nothing covers is **recorded** with no rules to break. `Dashboard` picks between them on whether the date is in `scheduledDates`. Future days stay untouchable, client and server alike.
 
+> Approved 24 November 2026: **a pin is a fact for the days either side of it** ([docs/fixed-watches.md](docs/fixed-watches.md)). The neighbour rules always counted "another pin" as a fact, but generation checked only backwards, so pinning someone to a Saturday let the engine give them the Friday before it — rule 1b broken, a clean candidate going spare, and nothing consented to, because at pin time the Friday was not a fact either. `planGlobal` now also reads pins forwards: a pin on the weekend after a Friday, or on the Monday after a weekend. Both relaxable like their backward halves; an inert pin still counts for nobody. No new rule and no new consent gate — the same two exclusions over one more known fact. Determinism unchanged.
+
 This is the persistent operating contract for building WatchSchedule. Follow it in **every** session. It is derived **from `/docs`** — the six specification documents are the source of truth. This file summarises them; it never overrides them. When this file and a doc disagree, the doc wins and this file should be corrected.
 
 ---

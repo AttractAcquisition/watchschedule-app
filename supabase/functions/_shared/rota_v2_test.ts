@@ -328,3 +328,58 @@ Deno.test('a pin on a day the schedule never covers is simply ignored', () => {
   assert.deepEqual(run(people, [lane('1')], { pins: [{ lane_id: 'nope', crew_id: 'c', watch_date: '2026-09-26' }] }), plain)
   assert.deepEqual(run(people, [lane('1')], { pins: [{ lane_id: '1', crew_id: 'nope', watch_date: '2026-09-26' }] }), plain)
 })
+
+// Legacy 4, 24 Nov 2026: Greta was pinned to Sat 28 + Sun 29 under
+// sat_sun_block. Generation then handed her the Friday before it too, because
+// the Friday-into-weekend rule only ever looked BACKWARDS. A clean candidate
+// was going spare and nobody had consented to anything — the pin's own consent
+// check had found no violation, since on the day it was made the Friday was
+// not yet a fact either.
+Deno.test('a pin is a fact for the Friday leading into it', () => {
+  const people = ['a', 'b', 'c'].map(id => crew(id))
+  const block: ScheduleSettings = { ...settings, weekend_structure: 'sat_sun_block' }
+  // 2026-09-25 is a Friday; 26/27 the weekend it leads into.
+  const pins = [
+    { lane_id: '1', crew_id: 'c', watch_date: '2026-09-26' },
+    { lane_id: '1', crew_id: 'c', watch_date: '2026-09-27' },
+  ]
+  const p = run(people, [lane('1')], { settings: block, pins })
+  const who = (d: string) => p.assignments.find(a => a.watch_date === d)?.crew_id
+  // The pin stands, both halves of the block.
+  assert.equal(who('2026-09-26'), 'c')
+  assert.equal(who('2026-09-27'), 'c')
+  // ...and the Friday before it goes to somebody else.
+  assert.notEqual(who('2026-09-25'), 'c')
+})
+
+Deno.test('a pin is a fact for the Monday following it', () => {
+  const people = ['a', 'b', 'c'].map(id => crew(id))
+  const block: ScheduleSettings = { ...settings, weekend_structure: 'sat_sun_block' }
+  // 2026-09-28 is the Monday after the 26/27 weekend.
+  const pins = [{ lane_id: '1', crew_id: 'c', watch_date: '2026-09-28' }]
+  const p = run(people, [lane('1')], { settings: block, pins })
+  const who = (d: string) => p.assignments.find(a => a.watch_date === d)?.crew_id
+  assert.equal(who('2026-09-28'), 'c')
+  // The weekend before a pinned Monday must not also be theirs.
+  assert.notEqual(who('2026-09-26'), 'c')
+})
+
+Deno.test('the forward pin check still yields rather than leave a day uncovered', () => {
+  // One eligible person: the rule is relaxed, not used as an excuse for a gap.
+  const block: ScheduleSettings = { ...settings, weekend_structure: 'sat_sun_block' }
+  const pins = [{ lane_id: '1', crew_id: 'a', watch_date: '2026-09-26' }]
+  const p = run([crew('a')], [lane('1')], { settings: block, pins })
+  assert.equal(p.assignments.find(a => a.watch_date === '2026-09-25')?.crew_id, 'a')
+  assert.equal(p.gaps.filter(g => g.watch_date === '2026-09-25').length, 0)
+})
+
+Deno.test('forward pin awareness does not disturb determinism', () => {
+  const people = ['a', 'b', 'c', 'd'].map(id => crew(id))
+  const block: ScheduleSettings = { ...settings, weekend_structure: 'sat_sun_block' }
+  const pins = [{ lane_id: '1', crew_id: 'c', watch_date: '2026-09-26' }]
+  assert.deepEqual(
+    run(people, [lane('1')], { settings: block, pins }),
+    run(people, [lane('1')], { settings: block, pins }),
+  )
+})
+

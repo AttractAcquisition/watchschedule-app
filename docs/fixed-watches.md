@@ -63,3 +63,23 @@ Determinism is unchanged. Pins are read in a fixed order and applied before any 
 Invariants unchanged: Supabase is the single source of truth, RLS is the access gate, the schedule and fairness tables are written only by server functions through service-role, `vessel_id` is re-derived from the JWT, secrets stay in Edge Functions, and generation stays deterministic.
 
 Verification: `supabase/functions/_shared/watch_pins_test.ts` (block derivation, the facts-only rule, each code from both directions, consent and refusal, inert pins) and additions to `rota_v2_test.ts` (a pin is honoured, lands on the ledger, reserves the person vessel-wide for that day, and leaves generation deterministic), plus `npm run build` in `app`.
+
+## A pin is a fact for the days either side of it (24 November 2026)
+
+The neighbour rules are checked against facts only, and **another pin is one of those facts** — but generation only ever looked *backwards*: at the ledger, and at what this run had already stood. It never looked at a pin sitting on the day after the one it was filling.
+
+So pinning someone to a Saturday let the engine hand them the Friday before it. Rule 1b broken, a clean candidate going spare, and nobody consenting to anything: at pin time the Friday was not a fact either, so `checkPins` raised no violation and `acknowledged` stayed empty. The violation was created **between** the two checks, by the run itself.
+
+Generation now reads pins forwards as well:
+
+- filling a **Friday**, a pin on either day of the weekend it leads into counts as `friday_into_weekend` (exempt under `fri_sat_sun_block`, where the Friday leads the block);
+- filling a **weekend**, a pin on the Monday after it counts as `monday_after_weekend`.
+
+Both are **relaxable**, like their backward halves: with nobody else available the rule yields rather than leave a day uncovered.
+
+Only a pin that will actually be **stood** counts. A pin on a day the schedule never covers — weekends off, a charter pause — stays inert and is a fact for nobody, exactly as before. The existing inert-pin test caught this on the first run: without that guard a dormant weekend pin silently reshuffled the Friday before it.
+
+This changes which rota the engine produces for a pinned vessel, but not how it decides: no new rule, no new consent gate, the same two exclusions applied to one more known fact. A run with no pins is bit-for-bit identical, and determinism is unchanged.
+
+Verification: `rota_v2_test.ts` — a pin is a fact for the Friday leading into it, and for the Monday following it; the check still yields rather than leave a day uncovered; and it does not disturb determinism.
+
