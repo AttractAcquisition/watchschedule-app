@@ -22,6 +22,9 @@ export default function App() {
         <Routes>
           {/* Public auth screen; redirects onward if already authed. */}
           <Route path="/login" element={<Login />} />
+          {/* Same screen, opened on "create account" — the marketing site's
+              "Get started" lands here. Public, like /login. */}
+          <Route path="/signup" element={<Login initialMode="signup" />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/account-confirmation" element={<AccountConfirmation />} />
