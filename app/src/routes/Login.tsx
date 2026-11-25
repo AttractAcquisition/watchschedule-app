@@ -34,9 +34,13 @@ function humanError(message: string, mode: Mode): string {
     : "We couldn't create your account. Please try again."
 }
 
-export default function Login() {
+// `initialMode` exists so the marketing site can link straight at creating an
+// account (`/signup`) rather than dropping a visitor on a sign-in form they
+// then have to find their way out of. Both paths render this one screen; the
+// toggle at the bottom still moves between them.
+export default function Login({ initialMode = 'signin' }: { initialMode?: Mode } = {}) {
   const { loading: gateLoading, session, zone } = useAuth()
-  const [mode, setMode] = useState<Mode>('signin')
+  const [mode, setMode] = useState<Mode>(initialMode)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
