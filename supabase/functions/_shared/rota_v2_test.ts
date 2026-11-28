@@ -815,3 +815,79 @@ Deno.test('rule 2d: facts beyond the window count — the day before (ledger + s
     retained: { assignments: [fri], opportunities: [] } })
   assert.deepEqual(withFact(after, fri), [])
 })
+
+// ---------------------------------------------------------------------------
+// fairness.md §7 (28 November 2026): the captain's "who goes first" order —
+// settings.rota_priority. Tester feedback: "choose who to favour".
+// ---------------------------------------------------------------------------
+const six = ['a', 'b', 'c', 'd', 'e', 'f']
+const month = (rota_priority: string[] | null | undefined, weekend_structure: ScheduleSettings['weekend_structure'] = 'per_day', base = {}, startDate = '2026-12-01', endDate = '2026-12-31') =>
+  planGlobal({ crew: six.map(id => crew(id)), lanes: [lane('1')], startDate, endDate, base, settings: { ...settings, weekend_structure, rota_priority } })
+
+Deno.test('priority: no order set is byte-identical to before (null, undefined and empty)', () => {
+  const legacy = month(undefined)
+  assert.deepEqual(month(null), legacy)
+  assert.deepEqual(month([]), legacy)
+})
+
+Deno.test('priority: the first-listed carries the month\'s extra watch, weekend and a Friday', () => {
+  for (const first of ['f', 'c']) {
+    const order = [first, ...six.filter(id => id !== first)]
+    const p = month(order)
+    const totals = six.map(id => p.ledger[id].total_watches)
+    assert.equal(p.ledger[first].total_watches, Math.max(...totals), `${first} totals ${totals}`)
+    assert.equal(p.ledger[first].weekend_watches, Math.max(...six.map(id => p.ledger[id].weekend_watches)))
+    assert.ok(p.ledger[first].friday_watches >= 1)
+    // ...and the last-listed the least. Within one month the order can tilt a
+    // watch from the bottom of the list to the top, so the gap may be two
+    // where the unordered engine manages one; it is never wider than that
+    // here, and the six-month test below holds it to the unordered bound.
+    assert.equal(p.ledger[order[order.length - 1]].total_watches, Math.min(...totals))
+    assert.ok(Math.max(...totals) - Math.min(...totals) <= 2)
+  }
+})
+
+Deno.test('priority: never outranks fairness — someone already ahead is not handed more', () => {
+  // 'f' is listed first but arrives already carrying ten weekday watches.
+  const base = Object.fromEntries(six.map(id => [id, { ...zeroEntry(id), weekday_opportunities: 20, weekend_opportunities: 8 }]))
+  base.f = { ...base.f, total_watches: 10, weekday_watches: 10 }
+  const p = month(['f', 'a', 'b', 'c', 'd', 'e'], 'per_day', base)
+  const weekdaysFor = (id: string) => p.assignments.filter(x => x.crew_id === id && x.day_type === 'weekday').length
+  assert.ok(six.filter(id => id !== 'f').every(id => weekdaysFor(id) >= weekdaysFor('f')))
+})
+
+Deno.test('priority: bounded — six months running never widen the spread beyond the unordered engine', () => {
+  for (const ws of ['per_day', 'sat_sun_block', 'fri_sat_sun_block'] as const) {
+    const spreadOver = (order: string[] | null) => {
+      let base = {}, worst = 0
+      for (let m = 0; m < 6; m++) {
+        const start = addDays('2027-01-04', m * 28)
+        const p = month(order, ws, base, start, addDays(start, 27))
+        base = p.ledger
+        const t = six.map(id => p.ledger[id].total_watches)
+        worst = Math.max(worst, Math.max(...t) - Math.min(...t))
+      }
+      return worst
+    }
+    assert.ok(spreadOver(['e', 'a', 'f', 'b', 'd', 'c']) <= spreadOver(null), ws)
+  }
+})
+
+Deno.test('priority: unknown and duplicate ids are ignored, unlisted crew follow, input order does not matter', () => {
+  const listed = month(['c', 'a'])
+  assert.deepEqual(month(['ghost', 'c', 'c', 'a', 'ghost']), listed)
+  // c and a lead; the unlisted follow in id order — the same as listing them.
+  assert.deepEqual(month(['c', 'a', 'b', 'd', 'e', 'f']), listed)
+  const reversed = planGlobal({ crew: [...six].reverse().map(id => crew(id)), lanes: [lane('1')], startDate: '2026-12-01', endDate: '2026-12-31', base: {}, settings: { ...settings, rota_priority: ['c', 'a'] } })
+  assert.deepEqual(reversed, listed)
+})
+
+Deno.test('priority: when an order is set the legacy rotation anchors no longer apply', () => {
+  const withAnchors = planGlobal({ crew: six.map(id => crew(id)), lanes: [lane('1')], startDate: '2026-12-01', endDate: '2026-12-31', base: {},
+    settings: { ...settings, weekday_rotation_anchor: 3, weekend_rotation_anchor: 2, rota_priority: ['d', 'b'] } })
+  assert.deepEqual(withAnchors, month(['d', 'b']))
+  // ...and still do while it is empty.
+  const anchoredOnly = planGlobal({ crew: six.map(id => crew(id)), lanes: [lane('1')], startDate: '2026-12-01', endDate: '2026-12-31', base: {},
+    settings: { ...settings, weekday_rotation_anchor: 3, weekend_rotation_anchor: 2 } })
+  assert.notDeepEqual(anchoredOnly, month(null))
+})
