@@ -111,6 +111,20 @@ export function WatchCalendar({
     [data.assignments, data.scheduledDates],
   )
   const lanes = data.lanes
+  // C3 — who is on booked leave each day. The legend has always promised a 🌙
+  // marker; until 28 Nov 2026 the leave was loaded but never drawn, so a captain
+  // could not see on the calendar that a period had registered.
+  const awayOn = useMemo(() => {
+    const names = (ids: string[]) => ids.map((id) => data.crewById.get(id)?.full_name ?? 'Crew').sort()
+    const byDate = new Map<string, string[]>()
+    for (const l of data.leave) {
+      for (let d = parseISO(l.start_date); fmt(d) <= l.end_date; d = addDays(d, 1)) {
+        const key = fmt(d)
+        byDate.set(key, [...(byDate.get(key) ?? []), l.crew_member_id])
+      }
+    }
+    return (date: string) => names([...new Set(byDate.get(date) ?? [])])
+  }, [data.leave, data.crewById])
 
   // The Today control must always show the real current week/month. An expired
   // schedule remains visible only on its own dates via Previous/Next; falling
@@ -203,7 +217,7 @@ export function WatchCalendar({
                 const inMonth = d.getMonth() === monthAnchor.getMonth()
                 return (
                   <div key={fmt(d)} className={`rounded-ws-sm ${inMonth ? '' : 'opacity-40'}`}>
-                    <div className="px-ws-1 pt-ws-1 text-right font-mono text-ws-xs text-ws-text-faint">{format(d, 'd')}</div>
+                    <DayHeader date={d} away={awayOn(fmt(d))} />
                     <div className="space-y-px p-ws-1">
                       {lanes.map((lane) => <Cell key={lane.id} data={data} lane={lane} date={d} scheduled={scheduled} byKey={byKey} todayISO={today} compact dense={denseMonth} onEdit={onEdit} />)}
                     </div>
@@ -216,6 +230,23 @@ export function WatchCalendar({
       </div>
       <Legend compact={denseMonth} editable={!!onEdit} />
     </section>
+  )
+}
+
+function DayHeader({ date, away }: { date: Date; away: string[] }) {
+  return (
+    <div className="flex items-center justify-between gap-ws-1 px-ws-1 pt-ws-1 font-mono text-ws-xs text-ws-text-faint">
+      {away.length ? (
+        <span
+          className="flex min-w-0 items-center text-ws-seagreen"
+          title={`On leave: ${away.join(', ')}`}
+          aria-label={`${format(date, 'd MMMM')}: on leave — ${away.join(', ')}`}
+        >
+          🌙
+        </span>
+      ) : <span />}
+      <span>{format(date, 'd')}</span>
+    </div>
   )
 }
 
@@ -235,7 +266,7 @@ function Legend({ compact = false, editable = false }: { compact?: boolean; edit
       <span className="flex items-center gap-ws-2"><span className="inline-block h-3 w-3 rounded-ws-sm bg-ws-navy" /> Weekend (separate rotation)</span>
       <span className="flex items-center gap-ws-2"><span className="font-mono text-ws-alert">⚠</span> Gap — no eligible crew</span>
       <span className="flex items-center gap-ws-2"><span className="font-mono italic text-ws-text-muted">Paused</span> Charter (rotation resumes after)</span>
-      <span className="flex items-center gap-ws-2"><span className="font-mono text-ws-seagreen">🌙</span> On leave (per-crew; standing preserved)</span>
+      <span className="flex items-center gap-ws-2"><span className="font-mono text-ws-seagreen">🌙</span> On leave — hover for who (standing preserved)</span>
       {editable && <span className="flex items-center gap-ws-2"><span className="inline-block h-3 w-3 rounded-ws-sm bg-ws-steel-2 ring-1 ring-inset ring-ws-gold-dim" /> Changed by hand — click any day to reassign, or a past day to record who stood it</span>}
     </div>
   )
