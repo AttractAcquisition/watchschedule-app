@@ -85,6 +85,7 @@ rather than of any one decision:
 | `repeated_weekday` | one crew member on the same weekday 3+ times in the window |
 | `consecutive_fridays` | the same person on two Fridays a week apart |
 | `consecutive_weekends` | the same person on two weekend blocks running |
+| `back_to_back` | the same person on two days running, outside a weekend or a Fri–Sun block. The engine only allows it when nobody could cover the day without a worse break (`fairness.md` §8 rule 2d), so a hit means a short-handed week |
 
 `friday_concentration` is counted **cumulatively from the ledger**, never from
 the window alone. A crew member who stood their Friday last month has had their
