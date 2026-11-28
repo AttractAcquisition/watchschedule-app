@@ -255,6 +255,14 @@ When two or more candidates share the lowest selection cost, break ties in this 
 4. **Lower `consecutive_run`**.
 5. **Stable identifier order** (e.g. ascending `crew_id` / created_at) as the final deterministic fallback.
 
+> **28 November 2026 amendment — the captain's "who goes first" order (`watch_settings.rota_priority`).** Rule 5's "stable identifier order" was the crew members' UUIDs: an order a captain could neither see nor change (the numeric rotation anchors only rotated it). Watches rarely divide evenly — 31 days across six crew leaves one over, and likewise weekends and Fridays — so *someone* always carries the remainder, and testers asked to choose who ("the greenest crew", or "me").
+>
+> The captain may now set an explicit order (Settings → Watch configuration → Advanced → *Who takes the extra watch*; RPC `set_rota_priority`, migration `20261128020000`). When set it does two things: it **replaces rule 5**, and it is ranked **straight after `cost`, ahead of rule 1** (`... -> cost -> priority -> total -> scarce -> ...`). Among crew the fairness cost rates as equally owed, the order decides; it never outranks `cost`, the Friday turn, or any constraint.
+>
+> *Why ahead of rule 1, measured not assumed:* as a pure replacement for rule 5 it reached the first-listed only **63%** of the time (and left them with the *fewest* watches in 18%), because rule 1 had already spread the remainder by whatever the month's earlier decisions happened to favour. Ahead of rule 1, across 540 month-long rotas (3–7 crew, every weekend structure), the first-listed carries the most in **86%** and the fewest in **2%**. *The honest cost:* within one month it can tilt one watch from the bottom of the list to the top, so the gap can be two where the unordered engine manages one; across six consecutive months the worst cumulative spread is **unchanged (3 either way)** and the first-listed is still the one carrying the extra in 39 of 45 setups. It chooses who stands on the heavy side of the gap the engine already allows — it does not widen it, and it is not a standing bias (per-crew share weighting would be a separate, larger amendment).
+>
+> Ids no longer aboard are ignored; crew added since the order was saved follow it in id order (the UI lists them alphabetically, flagged "not placed yet"). With no order set the key is zero for everyone and rule 5 stays the anchored id order, so **every existing vessel is byte-for-byte unchanged**. Saving the order bumps `watch_settings.updated_at`, so the dashboard's settings-changed notice prompts a regeneration.
+
 Recording: when a tiebreaker decides, the `fairness_event.reason_code` notes which rule (`tie_break_total`, `tie_break_scarce_slot`, etc.) so the decision remains explainable.
 
 ---

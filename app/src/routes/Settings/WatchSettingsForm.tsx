@@ -9,6 +9,7 @@ import { queryClient } from '../../lib/queryClient'
 import { useAuth } from '../../auth/AuthGate'
 import { InfoTooltip } from '../../components/ui/InfoTooltip'
 import { FixedWatches } from './FixedWatches'
+import { RotaPriority } from './RotaPriority'
 import { DEPARTMENTS, type Department } from '../../lib/classifyDepartment'
 import { DEPT_LABEL, effectiveWindow, GENERATION_MODES, GENERATION_MODE_LABEL, laneMaxForTier, makeWatchSettingsSchema, monthBounds, monthOf, todayISO, WEEKEND_STRUCTURES, WEEKEND_STRUCTURE_LABEL, windowDays, type Tier, type WatchSettingsValues as FormValues } from './watchSettings'
 
@@ -17,7 +18,7 @@ const prettyDate = (iso: string) => new Date(iso + 'T00:00:00Z').toLocaleDateStr
 const prettyMonth = (iso: string) => new Date(iso + 'T00:00:00Z').toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' })
 const addDaysISO = (iso: string, days: number) => new Date(Date.parse(iso + 'T00:00:00Z') + days * 86400000).toISOString().slice(0, 10)
 
-const ANCHORS_HELP = 'Sets the initial rotation order before watch history exists. Once schedules have been generated, fairness takes over. Most vessels can leave this at default.'
+const ANCHORS_HELP = 'The older way to set a starting order: it rotates an internal crew list before watch history exists. "Who takes the extra watch" above replaces it — these apply only while no order is set there.'
 // onSaveAndRegenerate renders a second submit that persists the form FIRST and
 // only then regenerates — settings edits must never reach the engine unsaved.
 export interface WatchSettingsFormProps { onSaved?: () => void | Promise<void>; submitLabel?: string; onSaveAndRegenerate?: () => Promise<void> }
@@ -50,6 +51,8 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
     },
   })
   const schema = useMemo(() => makeWatchSettingsSchema(tier), [tier])
+  // Only a vessel that already set a non-zero anchor sees the legacy inputs.
+  const legacyAnchors = !!(configuration?.settings?.weekday_rotation_anchor || configuration?.settings?.weekend_rotation_anchor)
   const { register, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: { lanes: [{ departments: [...DEPARTMENTS] }], horizon_weeks: 4, schedule_start_date: todayISO(), include_weekends: true, weekday_rotation_anchor: 0, weekend_rotation_anchor: 0, weekend_structure: 'per_day', generation_mode: 'weeks', generation_start_date: '', generation_end_date: '' },
@@ -267,23 +270,30 @@ export default function WatchSettingsForm({ onSaved, submitLabel = 'Save setting
         </fieldset>}
       </div>}
 
-      {/* Advanced: rotation anchors (optional) */}
+      {/* Advanced: who takes the extra watch, legacy anchors, fixed watches */}
       {showAdvanced && <div className="rounded-ws-sm border border-ws-line bg-ws-steel-2 p-ws-4">
-        <div className="flex items-center gap-ws-2">
-          <p className="text-ws-sm font-medium text-ws-text-muted">Rotation anchors</p>
-          <InfoTooltip text={ANCHORS_HELP} label="About rotation anchors" />
-        </div>
-        {showAdvanced && (
-          <div className="mt-ws-3 grid gap-ws-4 sm:grid-cols-2">
-            <div className="space-y-ws-2">
-              <label htmlFor="wda" className="block text-ws-sm font-medium text-ws-text-muted">Weekday rotation anchor</label>
-              <input id="wda" type="number" min={0} {...register('weekday_rotation_anchor', { valueAsNumber: true })}
-                className="w-full rounded-ws-sm border border-ws-line bg-ws-steel-3 px-ws-3 py-ws-2 text-ws-text focus:border-ws-gold focus:outline-none" />
+        {/* docs/fairness.md §7 — needs a saved configuration (the order lives on
+            watch_settings), so it appears once the lanes have been saved. */}
+        {!!configuration?.lanes.length && <RotaPriority />}
+        {/* Legacy rotation anchors: shown only to a vessel already using them.
+            Kept in the form either way so saving never resets them. */}
+        {legacyAnchors && (
+          <div className="mt-ws-4 border-t border-ws-line pt-ws-4">
+            <div className="flex items-center gap-ws-2">
+              <p className="text-ws-sm font-medium text-ws-text-muted">Rotation anchors (legacy)</p>
+              <InfoTooltip text={ANCHORS_HELP} label="About rotation anchors" />
             </div>
-            <div className="space-y-ws-2">
-              <label htmlFor="wea" className="block text-ws-sm font-medium text-ws-text-muted">Weekend rotation anchor</label>
-              <input id="wea" type="number" min={0} {...register('weekend_rotation_anchor', { valueAsNumber: true })}
-                className="w-full rounded-ws-sm border border-ws-line bg-ws-steel-3 px-ws-3 py-ws-2 text-ws-text focus:border-ws-gold focus:outline-none" />
+            <div className="mt-ws-3 grid gap-ws-4 sm:grid-cols-2">
+              <div className="space-y-ws-2">
+                <label htmlFor="wda" className="block text-ws-sm font-medium text-ws-text-muted">Weekday rotation anchor</label>
+                <input id="wda" type="number" min={0} {...register('weekday_rotation_anchor', { valueAsNumber: true })}
+                  className="w-full rounded-ws-sm border border-ws-line bg-ws-steel-3 px-ws-3 py-ws-2 text-ws-text focus:border-ws-gold focus:outline-none" />
+              </div>
+              <div className="space-y-ws-2">
+                <label htmlFor="wea" className="block text-ws-sm font-medium text-ws-text-muted">Weekend rotation anchor</label>
+                <input id="wea" type="number" min={0} {...register('weekend_rotation_anchor', { valueAsNumber: true })}
+                  className="w-full rounded-ws-sm border border-ws-line bg-ws-steel-3 px-ws-3 py-ws-2 text-ws-text focus:border-ws-gold focus:outline-none" />
+              </div>
             </div>
           </div>
         )}

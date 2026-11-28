@@ -34,6 +34,11 @@ export interface ScheduleSettings {
   weekday_rotation_anchor: number
   weekend_rotation_anchor: number
   weekend_structure?: WeekendStructure // default 'per_day'
+  // docs/fairness.md §7 rule 5 (28 Nov 2026): the captain's "who goes first"
+  // order — crew ids, first = takes the extra watch first when everyone is level.
+  // Replaces crew-id order as the LAST tie-break; empty keeps the legacy
+  // id order rotated by the anchors above.
+  rota_priority?: string[] | null
   // Generation window (schedule.md §5.1). 'weeks' uses horizon_weeks; the other
   // two carry a concrete window, capped at 91 days inclusive.
   generation_mode?: 'weeks' | 'month' | 'range'

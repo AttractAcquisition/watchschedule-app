@@ -917,6 +917,7 @@ export type Database = {
           vessel_id: string
           weekday_rotation_anchor: number | null
           weekend_rotation_anchor: number | null
+          rota_priority: string[]
           weekend_structure: Database["public"]["Enums"]["weekend_structure"]
         }
         Insert: {
@@ -933,6 +934,7 @@ export type Database = {
           vessel_id: string
           weekday_rotation_anchor?: number | null
           weekend_rotation_anchor?: number | null
+          rota_priority?: string[]
           weekend_structure?: Database["public"]["Enums"]["weekend_structure"]
         }
         Update: {
@@ -949,6 +951,7 @@ export type Database = {
           vessel_id?: string
           weekday_rotation_anchor?: number | null
           weekend_rotation_anchor?: number | null
+          rota_priority?: string[]
           weekend_structure?: Database["public"]["Enums"]["weekend_structure"]
         }
         Relationships: [
@@ -987,6 +990,10 @@ export type Database = {
           p_end: string | null
           p_horizon_weeks: number
         }
+        Returns: undefined
+      }
+      set_rota_priority: {
+        Args: { p_order: string[] }
         Returns: undefined
       }
       save_watch_configuration: {
