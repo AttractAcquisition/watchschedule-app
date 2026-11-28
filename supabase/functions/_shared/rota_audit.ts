@@ -286,5 +286,20 @@ export function findPatterns(assignments: PlannedAssignment[], structure: string
     }
   }
 
+  // Two days running (fairness.md §8 rule 2d). The engine only lets this happen
+  // when nobody else could cover the day without a worse break, so a hit here
+  // is a short-handed week, not a choice — worth showing the captain, who may
+  // fix it by hand or move leave. Sat->Sun is never reported: the weekend is
+  // its own rotation (and one watch under the block structures); Fri->Sat is
+  // one block under fri_sat_sun_block.
+  for (const id of people) {
+    const days = new Set(byCrew.get(id)!)
+    for (const d of [...days].sort(cmp)) {
+      const wd = isoWeekday(d)
+      if (wd === 6 || (wd === 5 && structure === 'fri_sat_sun_block')) continue
+      if (days.has(addDays(d, 1))) out.push({ code: 'back_to_back', detail: { crew_id: id, from: d, to: addDays(d, 1) } })
+    }
+  }
+
   return out.sort((a, b) => cmp(a.code, b.code) || cmp(JSON.stringify(a.detail), JSON.stringify(b.detail)))
 }

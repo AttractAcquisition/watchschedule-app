@@ -71,7 +71,10 @@ Deno.test('weekend blocks use the same person, all-days availability, and global
   assert.equal(p.opportunities.filter(o=>o.crew_id==='a' && o.watch_date>='2026-09-25'&&o.watch_date<='2026-09-27').length,0)
 })
 Deno.test('global Monday rest follows a person after moving lanes; relax only for coverage', () => {
-  const base={a:{...zeroEntry('a'),last_weekend_date:'2026-09-20'},b:zeroEntry('b')}
+  // A Sunday stood is also the last watch stood. (Before 28 Nov 2026 this base
+  // left last_watch_date empty; with only two crew every day relaxes a rule, and
+  // the back-to-back preference reads last_watch_date for the day before.)
+  const base={a:{...zeroEntry('a'),last_weekend_date:'2026-09-20',last_watch_date:'2026-09-20'},b:zeroEntry('b')}
   const p=run([crew('a'),crew('b')],[lane('new')],{base})
   assert.equal(p.assignments.find(a=>a.watch_date==='2026-09-21')!.crew_id,'b')
   const needed=run([crew('a'),crew('b')],[lane('new'),lane('other')],{base})
@@ -143,7 +146,13 @@ Deno.test('history replay deduplicates and preserves global balances after regro
   const base=replayGlobal({},[a,a],[...opp,...opp])
   assert.equal(base.a.total_watches,1); assert.equal(base.a.weekday_opportunities,1)
   const p=run([crew('a'),crew('b')],[lane('regrouped')],{base})
-  assert.equal(p.assignments.find(a=>a.watch_date==='2026-09-25')!.crew_id,'b')
+  // The carried Friday still counts: b stands at least as many of this window's
+  // Fridays as a, so the two end within one of each other. (Which Friday b
+  // takes first is no longer the 25th: with two crew every Friday breaks rule
+  // 1b, and b holds the Saturday after it — fairness.md §8 rule 2d.)
+  const fridays=p.assignments.filter(a=>a.is_friday)
+  assert.ok(fridays.filter(f=>f.crew_id==='b').length>=fridays.filter(f=>f.crew_id==='a').length)
+  assert.ok(Math.abs(p.ledger.a.friday_watches-p.ledger.b.friday_watches)<=1)
   assert.equal(p.ledger.a.total_watches+p.ledger.b.total_watches,29)
   assert.equal(base.a.total_watches,1)
   assert.deepEqual(p,run([crew('a'),crew('b')],[lane('regrouped')],{base}))
@@ -721,4 +730,88 @@ Deno.test('Friday queue changes nothing on other weekdays, and keeps determinism
   const p = planGlobal(opts)
   assert.equal(p.assignments[0].crew_id, 'b', 'a Wednesday ignores the Friday queue entirely')
   assert.deepEqual(planGlobal(opts).assignments, p.assignments)
+})
+
+// ---------------------------------------------------------------------------
+// fairness.md §8 rule 2d (28 November 2026): when a rule has to bend, bend it
+// away from the days either side. Tester feedback: "crew doing 2 watches in a
+// row (apart from the weekends)".
+// ---------------------------------------------------------------------------
+// Sat->Sun is never a back-to-back (the weekend is its own rotation, or one
+// block); Fri->Sat is one block under fri_sat_sun_block.
+const NEIGHBOUR_BLOCK = (structure: string, d: string) =>
+  isoWeekday(d) === 6 || (structure === 'fri_sat_sun_block' && isoWeekday(d) === 5)
+const backToBack = (p: ReturnType<typeof planGlobal>, structure: string) => {
+  const on = new Set(p.assignments.map(a => a.crew_id + ':' + a.watch_date))
+  return p.assignments.filter(a => on.has(a.crew_id + ':' + addDays(a.watch_date, 1)) && !NEIGHBOUR_BLOCK(structure, a.watch_date))
+}
+
+Deno.test('rule 2d: the production week — a forced weekday repeat no longer lands on consecutive days', () => {
+  // Rebuilt from the tester's vessel (Solo, Fri-Sun block, six crew, December
+  // 2026). p1..p6 sort as the real crew ids do, so tie-breaks match. Leave cut
+  // the pool to four for 21-27 Dec: the Fri-Sun block takes one, the Monday
+  // rule another for Monday, so one weekday repeat is forced. The engine put it
+  // on Wed 23 AND Thu 24 for the same person, as production showed.
+  const people = [['p1','deck'],['p2','interior'],['p3','engineering'],['p4','interior'],['p5','officer'],['p6','officer']]
+    .map(([id, department]) => crew(id, department, { available_from: '2026-11-27' }))
+  const leave = [
+    { crew_id: 'p4', start: '2026-11-26', end: '2026-12-07' }, { crew_id: 'p2', start: '2026-12-09', end: '2027-02-09' },
+    { crew_id: 'p4', start: '2026-12-29', end: '2027-01-04' }, { crew_id: 'p1', start: '2026-11-30', end: '2026-12-27' }]
+  const input = { crew: people, lanes: [lane('L', ['engineering', 'deck', 'officer', 'interior'])], startDate: '2026-12-01', endDate: '2026-12-31',
+    settings: { ...settings, weekend_structure: 'fri_sat_sun_block' as const }, base: {}, leave }
+  const p = planGlobal(input)
+  assert.equal(p.gaps.length, 0)
+  assert.deepEqual(backToBack(p, 'fri_sat_sun_block'), [])
+  const week = p.assignments.filter(a => a.watch_date >= '2026-12-21' && a.watch_date <= '2026-12-24')
+  assert.notEqual(week[2].crew_id, week[3].crew_id) // Wed 23 / Thu 24
+  // The repeat is still recorded as the week rule bending, never hidden.
+  assert.ok(p.events.some(e => e.watch_date >= '2026-12-21' && e.watch_date <= '2026-12-24' && e.reason_code === 'constraint_relaxed_week_exclusion'))
+  assert.deepEqual(planGlobal(input), p)
+  assert.deepEqual(planGlobal({ ...input, crew: [...people].reverse() }), p)
+})
+
+Deno.test('rule 2d: no weekday back-to-back while a non-adjacent option exists, every structure, 4-7 crew', () => {
+  for (const weekend_structure of ['per_day', 'sat_sun_block', 'fri_sat_sun_block'] as const) for (const n of [4, 5, 6, 7]) {
+    const people = Array.from({ length: n }, (_, i) => crew('c' + i))
+    const p = run(people, [lane('1')], { startDate: '2026-11-30', settings: { ...settings, horizon_weeks: 8, weekend_structure } })
+    assert.deepEqual(backToBack(p, weekend_structure).map(a => a.watch_date), [], `${weekend_structure} with ${n} crew`)
+  }
+})
+
+Deno.test('rule 2d: a clean candidate is never marked back-to-back, so normal weeks are untouched', () => {
+  for (const weekend_structure of ['per_day', 'sat_sun_block', 'fri_sat_sun_block'] as const) {
+    const p = run(['a','b','c','d','e','f'].map(id => crew(id)), [lane('1')], { settings: { ...settings, horizon_weeks: 8, weekend_structure } })
+    for (const e of p.events) for (const c of (e.detail as { candidates: { back_to_back: boolean; monday_relaxed: boolean; friday_relaxed: boolean; week_relaxed: boolean }[] }).candidates) {
+      if (c.back_to_back) assert.ok(c.monday_relaxed || c.friday_relaxed || c.week_relaxed)
+    }
+  }
+})
+
+Deno.test('rule 2d: coverage still wins — a one-person pool stands consecutive days, flagged', () => {
+  const p = run([crew('a'), crew('b')], [lane('1')], { leave: [{ crew_id: 'b', start: '2026-09-21', end: '2026-09-27' }] })
+  const week = p.assignments.filter(a => a.watch_date <= '2026-09-27')
+  assert.equal(week.length, 7)
+  assert.ok(week.every(a => a.crew_id === 'a'))
+  const flagged = p.events.filter(e => e.watch_date <= '2026-09-27' && (e.detail as { back_to_back: boolean }).back_to_back)
+  assert.ok(flagged.length > 0)
+})
+
+Deno.test('rule 2d: facts beyond the window count — the day before (ledger + stored week) and the retained tail after', () => {
+  const people = [crew('c0'), crew('c1'), crew('c2')]
+  const per_day = { ...settings, horizon_weeks: 2, weekend_structure: 'per_day' as const }
+  const withFact = (p: ReturnType<typeof planGlobal>, fact: PlannedAssignment) => backToBack({ ...p, assignments: [...p.assignments, fact] }, 'per_day')
+  // Before: the window opens on Friday 25 Sep; c0 stood Thursday 24 (the
+  // incoming ledger, and the week as generate-schedule reads it from stored
+  // assignments). Ignoring that fact put c0 on the Friday.
+  const thu: PlannedAssignment = { lane_id: '1', crew_id: 'c0', watch_date: '2026-09-24', day_type: 'weekday', is_friday: false }
+  const before = run(people, [lane('1')], { settings: per_day, startDate: '2026-09-25', endDate: '2026-10-04',
+    base: { c0: { ...zeroEntry('c0'), last_watch_date: '2026-09-24', total_watches: 1, weekday_watches: 1 } },
+    weekdayWeeks: ['c0:2026-09-21'] })
+  assert.deepEqual(withFact(before, thu), [])
+  // After: c1 already holds Friday 2 Oct in an older, retained generation, so
+  // Thursday 1 Oct — the window's last day — is not theirs.
+  const fri: PlannedAssignment = { lane_id: '1', crew_id: 'c1', watch_date: '2026-10-02', day_type: 'weekday', is_friday: true }
+  const after = run(people, [lane('1')], { settings: per_day, startDate: '2026-09-22', endDate: '2026-10-01',
+    retained: { assignments: [fri], opportunities: [] } })
+  assert.deepEqual(withFact(after, fri), [])
 })

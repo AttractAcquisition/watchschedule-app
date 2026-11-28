@@ -228,3 +228,12 @@ Deno.test('audit: never disturbs the plan it inspects', () => {
   audit(p)
   assert.equal(JSON.stringify(p.assignments), before, 'the audit reports; it never applies')
 })
+
+Deno.test('back_to_back: two days running is reported, except inside a weekend or a Fri-Sun block', () => {
+  const at = (crew_id: string, watch_date: string): PlannedAssignment => ({ lane_id: 'L', crew_id, watch_date, day_type: isoWeekday(watch_date) >= 6 ? 'weekend' : 'weekday', is_friday: isoWeekday(watch_date) === 5 })
+  // Wed 23 + Thu 24 Dec (the production week), Sat+Sun, Fri+Sat under a block, Sun->Mon.
+  const rows = [at('x', '2026-12-23'), at('x', '2026-12-24'), at('y', '2026-12-26'), at('y', '2026-12-27'), at('z', '2026-12-18'), at('z', '2026-12-19'), at('w', '2026-12-20'), at('w', '2026-12-21')]
+  const hits = (structure: string) => findPatterns(rows, structure).filter(p => p.code === 'back_to_back').map(p => (p.detail as { crew_id: string; from: string }).crew_id + ' ' + (p.detail as { from: string }).from)
+  assert.deepEqual(hits('per_day'), ['w 2026-12-20', 'x 2026-12-23', 'z 2026-12-18'])
+  assert.deepEqual(hits('fri_sat_sun_block'), ['w 2026-12-20', 'x 2026-12-23'])
+})

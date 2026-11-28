@@ -224,6 +224,10 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
   // The Friday queue: when turn counts are level, whoever stood one longest
   // ago goes first. Never having stood one sorts ahead of everybody.
   const lastFriday: Record<string, string> = { ...(input.lastFriday ?? {}) }
+  // fairness.md §8 rule 2d — back-to-back days. Days already rostered OUTSIDE
+  // this window count as facts on the footing a pin has: the retained tail
+  // ahead of it here, and the day before the window via the incoming ledger.
+  const retainedOn = new Set((input.retained?.assignments ?? []).map(a => a.crew_id + ':' + a.watch_date))
   for (const date of orderedDates) {
     if (!scheduled(date) || covered.has(date)) continue
     const wd = isoWeekday(date)
@@ -278,11 +282,30 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
     // independent, and a weekend must never block the week around it.
     const blockWeeks = [...new Set(days.filter(d => isoWeekday(d) < 6).map(isoWeekKey))]
     const secondWeekdayThisWeek = (id: string) => blockWeeks.some(w => weekdayWeeks.has(id + ':' + w))
+    // fairness.md §8 rule 2d (28 November 2026). When a rule above has to bend,
+    // bend it AWAY from the day either side. The three exclusions between them
+    // already forbid every weekday-touching back-to-back a clean candidate could
+    // form (Sun->Mon is rule 1, Fri->Sat rule 1b, any two weekdays rule 1c), so
+    // only a RELAXED candidate can ever be adjacent — and among relaxed
+    // candidates the engine used to choose by cost alone, which is how a forced
+    // weekday repeat landed on Wed AND Thu when Mon AND Thu was free. Sat<->Sun
+    // is not a neighbour pair here: the weekend is its own rotation, and under
+    // the block structures it is one watch. Checked both ways against what this
+    // run has placed and against facts (pins, the day before the window, the
+    // retained tail), never against days still to be decided — the same footing
+    // as rules 1, 1b and 1c, so the decision order cannot change the answer.
+    const neighbours = [addDays(days[0], -1), addDays(days[days.length - 1], 1)]
+      .filter((n, i) => !(isoWeekday(n) >= 6 && isoWeekday(i === 0 ? days[0] : days[days.length - 1]) >= 6))
+    const standsNextTo = (id: string) => neighbours.some(n =>
+      stood.has(id + ':' + n)
+      || (scheduled(n) && isPinnedOn(id, n))
+      || (n < input.startDate && input.base[id]?.last_watch_date === n)
+      || retainedOn.has(id + ':' + n))
     const pinnedOnFollowingMonday = (id: string) =>
       !!mondayAfterBlock && isoWeekday(mondayAfterBlock) === 1
       && scheduled(mondayAfterBlock) && isPinnedOn(id, mondayAfterBlock)
-    type Candidate = { id: string; relaxed: number; relaxedKind: 'monday' | 'friday' | 'week' | null; fridayTurn: number; fridayQueue: string; cost: number; total: number; scarce: number; last: string; consecutive: number }
-    const compare = (a: Candidate, b: Candidate) => a.relaxed - b.relaxed || a.fridayTurn - b.fridayTurn || cmp(a.fridayQueue, b.fridayQueue) || a.cost - b.cost || a.total - b.total || a.scarce - b.scarce || cmp(a.last, b.last) || a.consecutive - b.consecutive || tieRank.get(a.id)! - tieRank.get(b.id)!
+    type Candidate = { id: string; relaxed: number; adjacent: number; relaxedKind: 'monday' | 'friday' | 'week' | null; fridayTurn: number; fridayQueue: string; cost: number; total: number; scarce: number; last: string; consecutive: number }
+    const compare = (a: Candidate, b: Candidate) => a.relaxed - b.relaxed || a.adjacent - b.adjacent || a.fridayTurn - b.fridayTurn || cmp(a.fridayQueue, b.fridayQueue) || a.cost - b.cost || a.total - b.total || a.scarce - b.scarce || cmp(a.last, b.last) || a.consecutive - b.consecutive || tieRank.get(a.id)! - tieRank.get(b.id)!
     const rank = (id: string): Candidate => {
       const e = ledger[id] ?? zeroEntry(id)
       // At most one exclusion is ever in force: a Monday is never a weekend day.
@@ -309,6 +332,9 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
         // stopped two Fridays running. Empty = never stood one = first.
         fridayQueue: wd === 5 ? (lastFriday[id] ?? '') : '',
         relaxed: mondayAfterWeekend || fridayIntoWeekend || weekdayRepeat ? 1 : 0,
+        // Only meaningful when relaxed (see standsNextTo); kept as its own key
+        // so a clean candidate's ranking is untouched by it.
+        adjacent: (mondayAfterWeekend || fridayIntoWeekend || weekdayRepeat) && standsNextTo(id) ? 1 : 0,
         relaxedKind: mondayAfterWeekend ? 'monday' as const : fridayIntoWeekend ? 'friday' as const : weekdayRepeat ? 'week' as const : null,
         cost: days.reduce((sum, d) => sum + selectionCost(e, d, isoWeekday(d) >= 6 ? 'weekend' : 'weekday', isoWeekday(d) === 5), 0),
         total: e.total_watches, scarce: wd >= 6 ? e.weekend_watches : wd === 5 ? e.friday_watches : 0,
@@ -319,14 +345,18 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
       const ranked = pool.map(rank).sort(compare)
       // With at most N lanes only N-1 people can be occupied elsewhere. Keeping
       // the N best in each constraint class preserves the optimal matching.
-      return [0, 1].flatMap(relaxed => ranked.filter(c => c.relaxed === relaxed).slice(0, lanes.length))
+      // Back-to-back is its own class too, so a non-adjacent relaxed candidate is
+      // never cut from the shortlist by a cheaper adjacent one.
+      return [[0, 0], [1, 0], [1, 1]].flatMap(([relaxed, adjacent]) =>
+        ranked.filter(c => c.relaxed === relaxed && c.adjacent === adjacent).slice(0, lanes.length))
     })
     const forced = blockPins.map(id => (id ? rank(id) : null))
-    type Match = { picks: (Candidate | null)[]; filled: number; relaxed: number; cost: number }
+    type Match = { picks: (Candidate | null)[]; filled: number; relaxed: number; adjacent: number; cost: number }
     let best: Match | null = null
     const better = (a: Match, b: Match) => {
       if (a.filled !== b.filled) return a.filled > b.filled
       if (a.relaxed !== b.relaxed) return a.relaxed < b.relaxed
+      if (a.adjacent !== b.adjacent) return a.adjacent < b.adjacent
       if (Math.abs(a.cost - b.cost) > 1e-9) return a.cost < b.cost
       for (let i = 0; i < a.picks.length; i++) {
         const ac = a.picks[i], bc = b.picks[i]
@@ -336,26 +366,26 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
       }
       return false
     }
-    const search = (picks: (Candidate | null)[], used: Set<string>, relaxed: number, cost: number) => {
+    const search = (picks: (Candidate | null)[], used: Set<string>, relaxed: number, adjacent: number, cost: number) => {
       if (picks.length === lanes.length) {
-        const match = { picks: [...picks], filled: used.size, relaxed, cost }
+        const match = { picks: [...picks], filled: used.size, relaxed, adjacent, cost }
         if (!best || better(match, best)) best = match
         return
       }
       // A pinned lane is not searched: the captain already chose.
       const pin = forced[picks.length]
       if (pin) {
-        picks.push(pin); search(picks, used, relaxed + pin.relaxed, cost + pin.cost); picks.pop()
+        picks.push(pin); search(picks, used, relaxed + pin.relaxed, adjacent + pin.adjacent, cost + pin.cost); picks.pop()
         return
       }
       for (const c of candidates[picks.length]) if (!used.has(c.id)) {
-        used.add(c.id); picks.push(c); search(picks, used, relaxed + c.relaxed, cost + c.cost); picks.pop(); used.delete(c.id)
+        used.add(c.id); picks.push(c); search(picks, used, relaxed + c.relaxed, adjacent + c.adjacent, cost + c.cost); picks.pop(); used.delete(c.id)
       }
-      picks.push(null); search(picks, used, relaxed, cost); picks.pop()
+      picks.push(null); search(picks, used, relaxed, adjacent, cost); picks.pop()
     }
     // Pinned crew are reserved vessel-wide for the block before the search
     // begins, so no other lane can take them that day.
-    search([], new Set(pinnedHere), 0, 0)
+    search([], new Set(pinnedHere), 0, 0, 0)
     const result = best as Match | null
     for (const d of days) {
       covered.add(d)
@@ -369,7 +399,7 @@ export function planGlobal(input: { startDate: string; settings: ScheduleSetting
           for (const w of blockWeeks) weekdayWeeks.add(c.id + ':' + w)
           updateLedger({ id: lane.id, kind: 'dept', department: null, pool: blockPools[i] }, c.id, d, a.day_type, a.is_friday, ledger)
         }
-        events.push({ lane_id: lane.id, crew_id: c?.id ?? null, watch_date: d, reason_code: !c ? 'no_eligible_crew' : blockPins[i] ? 'fixed_watch' : c.relaxedKind ? `constraint_relaxed_${c.relaxedKind}_exclusion` : 'global_fairness_match', detail: { scope: 'vessel', block_days: days, pool: blockPools[i], pinned: !!blockPins[i], candidates: candidates[i].map(c => ({ crew_id: c.id, cost: c.cost, monday_relaxed: c.relaxedKind === 'monday', friday_relaxed: c.relaxedKind === 'friday', week_relaxed: c.relaxedKind === 'week' })), selected_cost: c?.cost ?? null, matched_lanes: result?.filled, relaxed: !!c?.relaxed } })
+        events.push({ lane_id: lane.id, crew_id: c?.id ?? null, watch_date: d, reason_code: !c ? 'no_eligible_crew' : blockPins[i] ? 'fixed_watch' : c.relaxedKind ? `constraint_relaxed_${c.relaxedKind}_exclusion` : 'global_fairness_match', detail: { scope: 'vessel', block_days: days, pool: blockPools[i], pinned: !!blockPins[i], candidates: candidates[i].map(c => ({ crew_id: c.id, cost: c.cost, monday_relaxed: c.relaxedKind === 'monday', friday_relaxed: c.relaxedKind === 'friday', week_relaxed: c.relaxedKind === 'week', back_to_back: !!c.adjacent })), selected_cost: c?.cost ?? null, matched_lanes: result?.filled, relaxed: !!c?.relaxed, back_to_back: !!c?.adjacent } })
       })
     }
   }
